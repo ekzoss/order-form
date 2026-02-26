@@ -13,3 +13,4 @@
 ## App Generation
 - Google gemini created "single file react app"
 - replaced App.jsx with code, modified the firebase authentication to use api-key from google (allow anon access, but only from vercel website, and use a database)
+- Development loop was to edit local version in vscode (while npm run dev was going, automatically updating localhost copy as I saved changes), then commit and push to github to publish to prod.. a minute later vercel would pick up changes, rebuild it with vite and publish it.
