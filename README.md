@@ -1,16 +1,15 @@
-# React + Vite
+## Env Setup
+- Local dir (temp on my desktop)
+- vscode pointing to dir
+- in vscode terminal set up the Node/react env:
+-- npm create vite@latest
+-- npm install
+-- npm install (requisites like tailwind-css firebase-db backend ...etc )
+-- npm run dev (runs on localhost for test)
+- then created git repo in that dir, and pushed everything to github
+- used Vercel tied to the github, which knew it was a vite/react app, and could build/deploy on any updates to the github repo
+- setup cname in dns to redirect to vercel app domain name
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## App Generation
+- Google gemini created "single file react app"
+- replaced App.jsx with code, modified the firebase authentication to use api-key from google (allow anon access, but only from vercel website, and use a database)
