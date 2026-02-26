@@ -103,7 +103,8 @@ export default function App() {
     productHeader: 'Austin Velocity 161 Diamond',
     productDescription: "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
     venmoUsername: 'ekzoss',
-    cashappUsername: 'KandiZoss'
+    cashappUsername: 'KandiZoss',
+    pricePerShirt: 7.50
   });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
@@ -168,7 +169,8 @@ export default function App() {
           productHeader: data.productHeader || 'Austin Velocity 161 Diamond',
           productDescription: data.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
           venmoUsername: data.venmoUsername || 'ekzoss',
-          cashappUsername: data.cashappUsername || 'KandiZoss'
+          cashappUsername: data.cashappUsername || 'KandiZoss',
+          pricePerShirt: data.pricePerShirt !== undefined ? data.pricePerShirt : 7.50
         });
       }
     });
@@ -244,7 +246,7 @@ export default function App() {
     return Object.values(sizes).reduce((acc, curr) => acc + curr, 0);
   }, [sizes]);
 
-  const pricePerShirt = 7.50;
+  const pricePerShirt = storeConfig.pricePerShirt !== undefined ? storeConfig.pricePerShirt : 7.50;
   const totalPrice = totalItems * pricePerShirt;
 
   const handleSubmitOrder = async (e) => {
@@ -506,7 +508,7 @@ export default function App() {
                   
                   <div className="bg-gray-50 rounded-xl p-6 mb-8 text-left border border-gray-100">
                     <h3 className="font-semibold text-gray-900 mb-4 border-b pb-2">Complete Your Payment</h3>
-                    <p className="text-sm text-gray-600 mb-4">Your order total is <strong>${lastOrder.totalPrice}</strong>. Please pay using one of the methods below. Include your name in the payment note.</p>
+                    <p className="text-sm text-gray-600 mb-4">Your order total is <strong>${lastOrder.totalPrice.toFixed(2)}</strong>. Please pay using one of the methods below. Include your name in the payment note.</p>
                     
                     <div className="space-y-3">
                       <a 
@@ -797,6 +799,17 @@ export default function App() {
                       type="text" 
                       value={configForm.cashappUsername} 
                       onChange={e => setConfigForm({...configForm, cashappUsername: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      min="0"
+                      value={configForm.pricePerShirt} 
+                      onChange={e => setConfigForm({...configForm, pricePerShirt: parseFloat(e.target.value) || 0})} 
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     />
                   </div>
