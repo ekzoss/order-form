@@ -6,7 +6,14 @@ import {
   LogOut, 
   ArrowLeft,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Edit2,
+  Trash2,
+  X,
+  Save,
+  ZoomIn,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -22,8 +29,11 @@ import {
   onSnapshot, 
   query,
   doc,
-  updateDoc
+  updateDoc,
+  deleteDoc,
+  setDoc
 } from 'firebase/firestore';
+
 
 // --- Firebase Initialization ---
 // Your web app's Firebase configuration
@@ -35,7 +45,6 @@ const firebaseConfig = {
   messagingSenderId: "765640988540",
   appId: "1:765640988540:web:72b33984957bd2d74476f9"
 };
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -45,10 +54,53 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
 const ADMIN_PASSWORD = "admin123";
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
 
+// --- Helper: Compress Image to Base64 ---
+// Compresses uploaded images so they fit safely within Firestore limits
+const compressImage = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new window.Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8)); // 80% quality JPEG
+      };
+    };
+  });
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+  // Store Configuration State (Images)
+  const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
+  const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
+  const [zoomedImage, setZoomedImage] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   // Form State
   const [name, setName] = useState('');
@@ -64,6 +116,9 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [adminError, setAdminError] = useState('');
   const [orders, setOrders] = useState([]);
+  const [editingOrderId, setEditingOrderId] = useState(null);
+  const [editFormData, setEditFormData] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   // --- 1. Authentication ---
   useEffect(() => {
@@ -90,14 +145,29 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. Fetch Orders for Admin ---
+  // --- 2. Fetch Config & Orders ---
+  useEffect(() => {
+    if (!user) return;
+
+    // Fetch Store Config (Images)
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+    const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setStoreConfig(docSnap.data());
+      }
+    });
+
+    return () => unsubscribeConfig();
+  }, [user]);
+
   useEffect(() => {
     if (!user || view !== 'adminDashboard') return;
 
+    // Fetch Orders
     const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
     const q = query(ordersRef);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
       const fetchedOrders = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -109,10 +179,30 @@ export default function App() {
       setAdminError("Failed to load orders.");
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeOrders();
   }, [user, view]);
 
   // --- Actions ---
+
+  const handleImageUpload = async (e, side) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    try {
+      const compressedBase64 = await compressImage(file);
+      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      
+      // Update config document in Firestore
+      await setDoc(configRef, { [side]: compressedBase64 }, { merge: true });
+    } catch (err) {
+      console.error("Upload error", err);
+      alert("Failed to compress and upload image. Please try a smaller image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleSizeChange = (size, value) => {
     const numValue = parseInt(value, 10) || 0;
     setSizes(prev => ({ ...prev, [size]: Math.max(0, numValue) }));
@@ -122,7 +212,7 @@ export default function App() {
     return Object.values(sizes).reduce((acc, curr) => acc + curr, 0);
   }, [sizes]);
 
-  const pricePerShirt = 25;
+  const pricePerShirt = 7.50;
   const totalPrice = totalItems * pricePerShirt;
 
   const handleSubmitOrder = async (e) => {
@@ -199,7 +289,46 @@ export default function App() {
       });
     } catch (err) {
       console.error("Error updating paid status:", err);
-      alert("Failed to update paid status.");
+      setAdminError("Failed to update paid status.");
+    }
+  };
+
+  const handleDeleteOrder = async (orderId) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId));
+      setDeleteConfirmId(null);
+    } catch (err) {
+      console.error("Error deleting order:", err);
+      setAdminError("Failed to delete order.");
+    }
+  };
+
+  const handleStartEdit = (order) => {
+    setEditingOrderId(order.id);
+    setEditFormData({ 
+      name: order.name, 
+      sizes: { ...order.sizes }, 
+      brandRequest: order.brandRequest || '', 
+      notes: order.notes || '' 
+    });
+  };
+
+  const handleSaveEdit = async (orderId) => {
+    try {
+      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
+      const newTotalItems = SIZES.reduce((acc, size) => acc + (parseInt(editFormData.sizes[size]) || 0), 0);
+      await updateDoc(orderRef, {
+        name: editFormData.name,
+        sizes: editFormData.sizes,
+        brandRequest: editFormData.brandRequest,
+        notes: editFormData.notes,
+        totalItems: newTotalItems
+      });
+      setEditingOrderId(null);
+      setEditFormData(null);
+    } catch (err) {
+      console.error("Error updating order:", err);
+      setAdminError("Failed to update order.");
     }
   };
 
@@ -222,8 +351,29 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800 selection:bg-indigo-100 flex flex-col">
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-800 selection:bg-indigo-100 flex flex-col relative">
       
+      {/* Lightbox Zoom Overlay */}
+      {zoomedImage && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4" 
+          onClick={() => setZoomedImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-black/50 p-2 rounded-full"
+            onClick={() => setZoomedImage(null)}
+          >
+            <X className="w-8 h-8" />
+          </button>
+          <img 
+            src={zoomedImage} 
+            alt="Zoomed product" 
+            className="max-w-full max-h-full object-contain cursor-zoom-out shadow-2xl" 
+            onClick={(e) => e.stopPropagation()} // prevent closing when clicking image directly
+          />
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -255,20 +405,63 @@ export default function App() {
             
             {/* Left Col: Product Info */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <div className="aspect-square bg-gray-100 rounded-xl mb-6 flex items-center justify-center relative overflow-hidden group">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 to-purple-50"></div>
-                <svg className="w-48 h-48 text-indigo-900 relative z-10 drop-shadow-md" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20.197,3.649c-0.234-0.198-0.548-0.272-0.849-0.2L16,4L12,2L8,4L4.652,3.449C4.352,3.376,4.038,3.451,3.804,3.649  C3.569,3.847,3.446,4.148,3.481,4.453l1,8.5C4.516,13.25,4.787,13.5,5.1,13.5h1.4V21c0,0.552,0.448,1,1,1h9c0.552,0,1-0.448,1-1v-7.5  h1.4c0.313,0,0.584-0.25,0.619-0.547l1-8.5C20.554,4.148,20.431,3.847,20.197,3.649z M12.5,4.236l2.118-1.059l1.761-0.294L16.5,4h-8  l0.121-1.117l1.761,0.294L12.5,4.236z M8.5,13.5v7h-1v-7H8.5z M16.5,20.5h-7v-7h7V20.5z M18.5,13.5h-1v-7h1V13.5z" />
-                </svg>
-                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-4 text-center z-20">
-                  <span className="font-bold text-white text-xl tracking-wider block drop-shadow-lg">2026</span>
-                  <span className="font-medium text-white/90 text-sm tracking-widest uppercase drop-shadow">Limited Ed.</span>
+              
+              {/* Image Display Area */}
+              <div className="mb-6">
+                <div className="aspect-square bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
+                  {storeConfig[`${activeTab}Image`] ? (
+                    <>
+                      <img 
+                        src={storeConfig[`${activeTab}Image`]} 
+                        alt={`T-shirt ${activeTab} view`} 
+                        className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
+                        onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
+                      />
+                      <button 
+                        onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
+                        className="absolute bottom-4 right-4 bg-white/90 p-2.5 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
+                        title="Zoom Image"
+                      >
+                        <ZoomIn className="w-5 h-5" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-gray-400 flex flex-col items-center">
+                      <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+                      <span className="text-sm">No {activeTab} image uploaded yet</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Front / Back Toggles */}
+                <div className="flex gap-2 mt-4 justify-center">
+                  <button 
+                    onClick={() => setActiveTab('front')}
+                    className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                      activeTab === 'front' 
+                        ? 'bg-indigo-600 text-white shadow-md' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Front View
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('back')}
+                    className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                      activeTab === 'back' 
+                        ? 'bg-indigo-600 text-white shadow-md' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Back View
+                  </button>
                 </div>
               </div>
 
-              <h1 className="text-3xl font-extrabold text-gray-900 mb-2">"The Classic" Minimalist Tee</h1>
-              <p className="text-gray-600 mb-4">Premium heavyweight cotton. Designed for comfort and everyday wear. Features our signature subtle chest embroidery.</p>
-              <div className="text-2xl font-bold text-indigo-600">${pricePerShirt} <span className="text-sm font-normal text-gray-500">/ shirt</span></div>
+              <h1 className="text-3xl font-extrabold text-gray-900 mb-2">Austin Velocity 161 Diamond</h1>
+              <p className="text-gray-600 mb-4">Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.
+              <br />The shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.</p>
+              <div className="text-2xl font-bold text-indigo-600">${pricePerShirt.toFixed(2)} <span className="text-sm font-normal text-gray-500">/ shirt</span></div>
             </div>
 
             {/* Right Col: Order Form */}
@@ -459,8 +652,8 @@ export default function App() {
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900">Order Dashboard</h1>
-                <p className="text-gray-500">Overview of all submitted t-shirt orders.</p>
+                <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+                <p className="text-gray-500">Manage your store settings and view orders.</p>
               </div>
               <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
                  <span className="text-sm text-gray-500 uppercase tracking-wider font-semibold">Total Revenue</span>
@@ -468,6 +661,72 @@ export default function App() {
                    ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0)}
                  </span>
               </div>
+            </div>
+
+            {/* --- NEW: Image Upload Section --- */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings: Product Images</h2>
+              <div className="grid md:grid-cols-2 gap-6">
+                
+                {/* Front Image Uploader */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Front Image (.jpg)</label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                      {storeConfig.frontImage ? (
+                        <img src={storeConfig.frontImage} alt="front" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="w-6 h-6 text-gray-400" />
+                      )}
+                    </div>
+                    <div className="flex-grow">
+                      <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 relative overflow-hidden group">
+                        <Upload className="w-4 h-4" />
+                        <span>Upload Front</span>
+                        <input 
+                          type="file" 
+                          accept="image/jpeg, image/png" 
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full hidden group-hover:block" 
+                          onChange={(e) => handleImageUpload(e, 'frontImage')} 
+                          disabled={uploadingImage} 
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Back Image Uploader */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Back Image (.jpg)</label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                      {storeConfig.backImage ? (
+                        <img src={storeConfig.backImage} alt="back" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="w-6 h-6 text-gray-400" />
+                      )}
+                    </div>
+                    <div className="flex-grow">
+                      <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 relative overflow-hidden group">
+                        <Upload className="w-4 h-4" />
+                        <span>Upload Back</span>
+                        <input 
+                          type="file" 
+                          accept="image/jpeg, image/png" 
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full hidden group-hover:block" 
+                          onChange={(e) => handleImageUpload(e, 'backImage')} 
+                          disabled={uploadingImage} 
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {uploadingImage && (
+                <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
+                  <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
+                </p>
+              )}
             </div>
 
             {/* Totals Summary Cards */}
@@ -497,17 +756,20 @@ export default function App() {
                       <th className="px-6 py-4">Notes</th>
                       <th className="px-6 py-4 text-right">Items</th>
                       <th className="px-6 py-4 text-center border-l border-gray-200">Paid</th>
+                      <th className="px-6 py-4 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {orders.length === 0 ? (
                       <tr>
-                        <td colSpan="11" className="px-6 py-12 text-center text-gray-500 text-base">
+                        <td colSpan="12" className="px-6 py-12 text-center text-gray-500 text-base">
                           No orders have been placed yet.
                         </td>
                       </tr>
                     ) : (
-                      orders.map((order) => (
+                      orders.map((order) => {
+                        const isEditing = editingOrderId === order.id;
+                        return (
                         <tr 
                           key={order.id} 
                           className={`transition-colors ${order.isPaid ? 'bg-green-50/30' : 'hover:bg-gray-50/50'}`}
@@ -516,32 +778,105 @@ export default function App() {
                             {new Date(order.timestamp).toLocaleDateString()} <br/>
                             {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </td>
-                          <td className="px-6 py-4 font-medium text-gray-900">{order.name}</td>
-                          <td className={`px-4 py-4 text-center border-l border-gray-100 ${order.sizes?.S > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>{order.sizes?.S || 0}</td>
-                          <td className={`px-4 py-4 text-center ${order.sizes?.M > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>{order.sizes?.M || 0}</td>
-                          <td className={`px-4 py-4 text-center ${order.sizes?.L > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>{order.sizes?.L || 0}</td>
-                          <td className={`px-4 py-4 text-center ${order.sizes?.XL > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>{order.sizes?.XL || 0}</td>
-                          <td className={`px-4 py-4 text-center border-r border-gray-100 ${order.sizes?.XXL > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>{order.sizes?.XXL || 0}</td>
-                          
-                          <td className="px-6 py-4 text-gray-500 italic text-xs">{order.brandRequest || '-'}</td>
-                          
-                          <td className="px-6 py-4 text-gray-600 text-xs max-w-[150px] truncate" title={order.notes}>
-                            {order.notes || '-'}
+                          <td className="px-6 py-4 font-medium text-gray-900">
+                            {isEditing ? (
+                              <input 
+                                type="text" 
+                                value={editFormData.name} 
+                                onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                                className="w-full px-2 py-1 border border-indigo-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            ) : order.name}
                           </td>
                           
-                          <td className="px-6 py-4 text-right font-bold text-gray-900">{order.totalItems}</td>
+                          {SIZES.map(size => (
+                            <td key={size} className={`px-2 py-4 text-center ${size === 'S' ? 'border-l border-gray-100' : ''} ${size === 'XXL' ? 'border-r border-gray-100' : ''} ${order.sizes?.[size] > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  min="0"
+                                  value={editFormData.sizes[size] === 0 ? '' : editFormData.sizes[size]} 
+                                  onChange={e => setEditFormData({
+                                    ...editFormData, 
+                                    sizes: { ...editFormData.sizes, [size]: Math.max(0, parseInt(e.target.value) || 0) }
+                                  })}
+                                  className="w-10 px-1 py-1 border border-indigo-300 rounded text-center text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                  placeholder="0"
+                                />
+                              ) : (order.sizes?.[size] || 0)}
+                            </td>
+                          ))}
+                          
+                          <td className="px-6 py-4 text-gray-500 italic text-xs">
+                            {isEditing ? (
+                              <input 
+                                type="text" 
+                                value={editFormData.brandRequest} 
+                                onChange={e => setEditFormData({...editFormData, brandRequest: e.target.value})}
+                                className="w-full px-2 py-1 border border-indigo-300 rounded text-sm not-italic focus:outline-none"
+                              />
+                            ) : (order.brandRequest || '-')}
+                          </td>
+                          
+                          <td className="px-6 py-4 text-gray-600 text-xs max-w-[150px]">
+                            {isEditing ? (
+                              <input 
+                                type="text" 
+                                value={editFormData.notes} 
+                                onChange={e => setEditFormData({...editFormData, notes: e.target.value})}
+                                className="w-full px-2 py-1 border border-indigo-300 rounded text-sm focus:outline-none"
+                              />
+                            ) : (
+                              <div className="truncate" title={order.notes}>{order.notes || '-'}</div>
+                            )}
+                          </td>
+                          
+                          <td className="px-6 py-4 text-right font-bold text-gray-900">
+                            {isEditing ? SIZES.reduce((acc, size) => acc + (parseInt(editFormData.sizes[size]) || 0), 0) : order.totalItems}
+                          </td>
                           
                           <td className="px-6 py-4 text-center border-l border-gray-100">
                             <input
                               type="checkbox"
                               checked={!!order.isPaid}
                               onChange={() => handleTogglePaid(order.id, !!order.isPaid)}
-                              className="w-5 h-5 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                              disabled={isEditing}
+                              className="w-5 h-5 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer disabled:opacity-50"
                               title={order.isPaid ? "Mark as unpaid" : "Mark as paid"}
                             />
                           </td>
+
+                          <td className="px-6 py-4 text-center">
+                            {deleteConfirmId === order.id ? (
+                              <div className="flex items-center justify-center gap-2 flex-col">
+                                <span className="text-xs text-red-600 font-bold">Delete?</span>
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleDeleteOrder(order.id)} className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">Yes</button>
+                                  <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1 bg-gray-200 text-gray-800 text-xs rounded hover:bg-gray-300 transition-colors">No</button>
+                                </div>
+                              </div>
+                            ) : isEditing ? (
+                              <div className="flex items-center justify-center gap-3">
+                                <button onClick={() => handleSaveEdit(order.id)} className="text-green-600 hover:text-green-800 transition-colors" title="Save Changes">
+                                  <Save className="w-5 h-5" />
+                                </button>
+                                <button onClick={() => { setEditingOrderId(null); setEditFormData(null); }} className="text-gray-400 hover:text-gray-600 transition-colors" title="Cancel">
+                                  <X className="w-5 h-5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-3">
+                                <button onClick={() => handleStartEdit(order)} className="text-indigo-500 hover:text-indigo-800 transition-colors" title="Edit Order">
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete Order">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
                         </tr>
-                      ))
+                      )})
                     )}
                   </tbody>
                 </table>
