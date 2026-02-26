@@ -98,6 +98,14 @@ export default function App() {
 
   // Store Configuration State (Images)
   const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
+  const [configForm, setConfigForm] = useState({
+    pageTitle: 'Austin Velocity 161 Diamond Team Shirt - Order form',
+    productHeader: 'Austin Velocity 161 Diamond',
+    productDescription: "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
+    venmoUsername: 'ekzoss',
+    cashappUsername: 'KandiZoss'
+  });
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
   const [zoomedImage, setZoomedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -149,11 +157,19 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // Fetch Store Config (Images)
+    // Fetch Store Config (Images & Text)
     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
     const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
-        setStoreConfig(docSnap.data());
+        const data = docSnap.data();
+        setStoreConfig(data);
+        setConfigForm({
+          pageTitle: data.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
+          productHeader: data.productHeader || 'Austin Velocity 161 Diamond',
+          productDescription: data.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
+          venmoUsername: data.venmoUsername || 'ekzoss',
+          cashappUsername: data.cashappUsername || 'KandiZoss'
+        });
       }
     });
 
@@ -183,6 +199,22 @@ export default function App() {
   }, [user, view]);
 
   // --- Actions ---
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingConfig(true);
+    try {
+      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      await setDoc(configRef, configForm, { merge: true });
+      // Temporary alert for admin feedback
+      alert("Store settings updated successfully!");
+    } catch (err) {
+      console.error("Save config error", err);
+      alert("Failed to save settings.");
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
 
   const handleImageUpload = async (e, side) => {
     const file = e.target.files[0];
@@ -381,7 +413,7 @@ export default function App() {
             className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer"
             onClick={() => { setView('store'); setOrderSuccess(false); }}
           >
-            <span>Austin Velocity 161 Diamond Team Shirt - Order form</span>
+            <span>{storeConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form'}</span>
           </div>
           
           {view === 'adminDashboard' && (
@@ -457,9 +489,8 @@ export default function App() {
                 </div>
               </div>
 
-              <h1 className="text-3xl font-extrabold text-gray-900 mb-2">Austin Velocity 161 Diamond</h1>
-              <p className="text-gray-600 mb-4">Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.
-              <br />The shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.</p>
+              <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
+              <p className="text-gray-600 mb-4 whitespace-pre-wrap">{storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt."}</p>
               <div className="text-2xl font-bold text-indigo-600">${pricePerShirt.toFixed(2)} <span className="text-sm font-normal text-gray-500">/ shirt</span></div>
             </div>
 
@@ -479,7 +510,7 @@ export default function App() {
                     
                     <div className="space-y-3">
                       <a 
-                        href={`https://venmo.com/ekzoss?txn=pay&audience=private&amount=${lastOrder.totalPrice}&note=T-Shirt%20Order%20-%20${encodeURIComponent(lastOrder.name)}`} 
+                        href={`https://venmo.com/${storeConfig.venmoUsername || 'ekzoss'}?txn=pay&audience=private&amount=${lastOrder.totalPrice}&note=T-Shirt%20Order%20-%20${encodeURIComponent(lastOrder.name)}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#008CFF] hover:bg-[#0074D6] text-white font-medium rounded-lg transition-colors shadow-sm"
@@ -487,7 +518,7 @@ export default function App() {
                         Pay with Venmo
                       </a>
                       <a 
-                        href={`https://cash.app/$KandiZoss/${lastOrder.totalPrice}`} 
+                        href={`https://cash.app/$${storeConfig.cashappUsername || 'KandiZoss'}/${lastOrder.totalPrice}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#00D632] hover:bg-[#00B82A] text-white font-medium rounded-lg transition-colors shadow-sm"
@@ -726,6 +757,67 @@ export default function App() {
                   <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
                 </p>
               )}
+            </div>
+
+            {/* --- NEW: Text & Payment Settings --- */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings: Details & Payment</h2>
+              <form onSubmit={handleSaveConfig} className="space-y-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Page Title (Top Bar)</label>
+                    <input 
+                      type="text" 
+                      value={configForm.pageTitle} 
+                      onChange={e => setConfigForm({...configForm, pageTitle: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Product Header</label>
+                    <input 
+                      type="text" 
+                      value={configForm.productHeader} 
+                      onChange={e => setConfigForm({...configForm, productHeader: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Venmo Username <span className="text-gray-400 font-normal">(without @)</span></label>
+                    <input 
+                      type="text" 
+                      value={configForm.venmoUsername} 
+                      onChange={e => setConfigForm({...configForm, venmoUsername: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Cash App Cashtag <span className="text-gray-400 font-normal">(without $)</span></label>
+                    <input 
+                      type="text" 
+                      value={configForm.cashappUsername} 
+                      onChange={e => setConfigForm({...configForm, cashappUsername: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description</label>
+                  <textarea 
+                    value={configForm.productDescription} 
+                    onChange={e => setConfigForm({...configForm, productDescription: e.target.value})} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[100px]"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={isSavingConfig}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSavingConfig ? 'Saving...' : 'Save Text Settings'}
+                </button>
+              </form>
             </div>
 
             {/* Totals Summary Cards */}
