@@ -479,7 +479,7 @@ export default function App() {
                     
                     <div className="space-y-3">
                       <a 
-                        href={`https://venmo.com/?txn=pay&audience=private&amount=${lastOrder.totalPrice}&note=T-Shirt%20Order%20-%20${encodeURIComponent(lastOrder.name)}`} 
+                        href={`https://venmo.com/ekzoss?txn=pay&audience=private&amount=${lastOrder.totalPrice}&note=T-Shirt%20Order%20-%20${encodeURIComponent(lastOrder.name)}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#008CFF] hover:bg-[#0074D6] text-white font-medium rounded-lg transition-colors shadow-sm"
@@ -487,7 +487,7 @@ export default function App() {
                         Pay with Venmo
                       </a>
                       <a 
-                        href={`https://cash.app/$yourcashtag/${lastOrder.totalPrice}`} 
+                        href={`https://cash.app/$KandiZoss/${lastOrder.totalPrice}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#00D632] hover:bg-[#00B82A] text-white font-medium rounded-lg transition-colors shadow-sm"
