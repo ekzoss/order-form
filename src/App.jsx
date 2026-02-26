@@ -381,8 +381,7 @@ export default function App() {
             className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer"
             onClick={() => { setView('store'); setOrderSuccess(false); }}
           >
-            <ShoppingCart className="w-6 h-6" />
-            <span>Campus Threads</span>
+            <span>Austin Velocity 161 Diamond Team Shirt - Order form</span>
           </div>
           
           {view === 'adminDashboard' && (
@@ -555,7 +554,7 @@ export default function App() {
                   </div>
 
                   {/* Optional Brand Request */}
-                  <div>
+                  {/* <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="brand">
                       Preferred T-Shirt Brand <span className="text-gray-400 font-normal">(Optional)</span>
                     </label>
@@ -567,7 +566,7 @@ export default function App() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                       placeholder="e.g., Bella+Canvas, Gildan"
                     />
-                  </div>
+                  </div> */}
 
                   {/* Optional Notes */}
                   <div>
@@ -586,7 +585,7 @@ export default function App() {
                   {/* Order Summary Line */}
                   <div className="bg-gray-50 p-4 rounded-lg flex justify-between items-center border border-gray-100">
                     <span className="text-gray-600 font-medium">Total Items: <span className="text-gray-900 font-bold">{totalItems}</span></span>
-                    <span className="text-gray-600 font-medium">Est. Total: <span className="text-indigo-600 font-bold text-lg">${totalPrice}</span></span>
+                    <span className="text-gray-600 font-medium">Total: <span className="text-indigo-600 font-bold text-lg">${totalPrice.toFixed(2)}</span></span>
                   </div>
 
                   <button
@@ -658,7 +657,7 @@ export default function App() {
               <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
                  <span className="text-sm text-gray-500 uppercase tracking-wider font-semibold">Total Revenue</span>
                  <span className="text-2xl font-bold text-green-600">
-                   ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0)}
+                   ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0).toFixed(2)}
                  </span>
               </div>
             </div>
