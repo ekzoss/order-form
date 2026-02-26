@@ -751,7 +751,7 @@ export default function App() {
                       <th className="px-4 py-4 text-center bg-gray-50/50">L</th>
                       <th className="px-4 py-4 text-center bg-gray-50/50">XL</th>
                       <th className="px-4 py-4 text-center border-r border-gray-200 bg-gray-50/50">XXL</th>
-                      <th className="px-6 py-4">Brand Req.</th>
+                      {/* <th className="px-6 py-4">Brand Req.</th> */}
                       <th className="px-6 py-4">Notes</th>
                       <th className="px-6 py-4 text-right">Items</th>
                       <th className="px-6 py-4 text-center border-l border-gray-200">Paid</th>
@@ -806,7 +806,7 @@ export default function App() {
                             </td>
                           ))}
                           
-                          <td className="px-6 py-4 text-gray-500 italic text-xs">
+                          {/* <td className="px-6 py-4 text-gray-500 italic text-xs">
                             {isEditing ? (
                               <input 
                                 type="text" 
@@ -815,7 +815,7 @@ export default function App() {
                                 className="w-full px-2 py-1 border border-indigo-300 rounded text-sm not-italic focus:outline-none"
                               />
                             ) : (order.brandRequest || '-')}
-                          </td>
+                          </td> */}
                           
                           <td className="px-6 py-4 text-gray-600 text-xs max-w-[150px]">
                             {isEditing ? (
