@@ -525,7 +525,7 @@ export default function App() {
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#008CFF] hover:bg-[#0074D6] text-white font-medium rounded-lg transition-colors shadow-sm"
                       >
-                        Pay with Venmo @/${storeConfig.venmoUsername || 'ekzoss'}
+                        Pay with Venmo @{storeConfig.venmoUsername || 'ekzoss'}
                       </a>
                       <a 
                         href={`https://cash.app/$${storeConfig.cashappUsername || 'KandiZoss'}/${lastOrder.totalPrice}`} 
@@ -533,7 +533,7 @@ export default function App() {
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#00D632] hover:bg-[#00B82A] text-white font-medium rounded-lg transition-colors shadow-sm"
                       >
-                        Pay with Cash App $${storeConfig.cashappUsername || 'KandiZoss'}
+                        Pay with Cash App ${storeConfig.cashappUsername || 'KandiZoss'}
                       </a>
                     </div>
                   </div>
