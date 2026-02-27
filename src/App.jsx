@@ -492,7 +492,15 @@ export default function App() {
               </div>
 
               <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
-              <p className="text-gray-600 mb-4 whitespace-pre-wrap">{storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt."}</p>
+              
+              {/* Product Description with HTML support */}
+              <div 
+                className="text-gray-600 mb-4 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
+                dangerouslySetInnerHTML={{ 
+                  __html: storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt." 
+                }} 
+              />
+              
               <div className="text-2xl font-bold text-indigo-600">${pricePerShirt.toFixed(2)} <span className="text-sm font-normal text-gray-500">/ shirt</span></div>
             </div>
 
@@ -815,7 +823,7 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML like &lt;a href="..."&gt;)</span></label>
                   <textarea 
                     value={configForm.productDescription} 
                     onChange={e => setConfigForm({...configForm, productDescription: e.target.value})} 
