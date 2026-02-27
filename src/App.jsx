@@ -516,7 +516,7 @@ export default function App() {
                   
                   <div className="bg-gray-50 rounded-xl p-6 mb-8 text-left border border-gray-100">
                     <h3 className="font-semibold text-gray-900 mb-4 border-b pb-2">Complete Your Payment</h3>
-                    <p className="text-sm text-gray-600 mb-4">Your order total is <strong>${lastOrder.totalPrice.toFixed(2)}</strong>. Please pay using one of the methods below. Include your name in the payment note.</p>
+                    <p className="text-sm text-gray-600 mb-4">Your order total is <strong>${lastOrder.totalPrice.toFixed(2)}</strong>. Please pay using one of the methods below, or cash, etc... Include your name in the payment note.</p>
                     
                     <div className="space-y-3">
                       <a 
@@ -525,7 +525,7 @@ export default function App() {
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#008CFF] hover:bg-[#0074D6] text-white font-medium rounded-lg transition-colors shadow-sm"
                       >
-                        Pay with Venmo
+                        Pay with Venmo @/${storeConfig.venmoUsername || 'ekzoss'}
                       </a>
                       <a 
                         href={`https://cash.app/$${storeConfig.cashappUsername || 'KandiZoss'}/${lastOrder.totalPrice}`} 
@@ -533,7 +533,7 @@ export default function App() {
                         rel="noreferrer"
                         className="flex items-center justify-center w-full py-3 px-4 bg-[#00D632] hover:bg-[#00B82A] text-white font-medium rounded-lg transition-colors shadow-sm"
                       >
-                        Pay with Cash App
+                        Pay with Cash App $${storeConfig.cashappUsername || 'KandiZoss'}
                       </a>
                     </div>
                   </div>
