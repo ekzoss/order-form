@@ -104,7 +104,11 @@ export default function App() {
     productDescription: "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
     venmoUsername: 'ekzoss',
     cashappUsername: 'KandiZoss',
-    pricePerShirt: 7.50
+    pricePerShirt: 7.50,
+    notificationEmail: '',
+    emailjsServiceId: '',
+    emailjsTemplateId: '',
+    emailjsPublicKey: ''
   });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
@@ -170,7 +174,11 @@ export default function App() {
           productDescription: data.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
           venmoUsername: data.venmoUsername || 'ekzoss',
           cashappUsername: data.cashappUsername || 'KandiZoss',
-          pricePerShirt: data.pricePerShirt !== undefined ? data.pricePerShirt : 7.50
+          pricePerShirt: data.pricePerShirt !== undefined ? data.pricePerShirt : 7.50,
+          notificationEmail: data.notificationEmail || '',
+          emailjsServiceId: data.emailjsServiceId || '',
+          emailjsTemplateId: data.emailjsTemplateId || '',
+          emailjsPublicKey: data.emailjsPublicKey || ''
         });
       }
     });
@@ -281,6 +289,30 @@ export default function App() {
         timestamp: Date.now(),
         userId: user.uid
       });
+      
+      // NEW: Trigger Email Notification via EmailJS (No backend needed)
+      if (storeConfig.emailjsServiceId && storeConfig.emailjsTemplateId && storeConfig.emailjsPublicKey) {
+        try {
+          await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_id: storeConfig.emailjsServiceId,
+              template_id: storeConfig.emailjsTemplateId,
+              user_id: storeConfig.emailjsPublicKey,
+              template_params: {
+                to_email: storeConfig.notificationEmail,
+                customer_name: name.trim(),
+                total_items: totalItems,
+                total_price: totalPrice.toFixed(2),
+                notes: notes.trim() || 'None'
+              }
+            })
+          });
+        } catch (emailErr) {
+          console.error("Failed to send EmailJS notification:", emailErr);
+        }
+      }
       
       setLastOrder({
         name: name.trim(),
@@ -822,6 +854,54 @@ export default function App() {
                     />
                   </div>
                 </div>
+
+                {/* EmailJS Settings */}
+                <div className="pt-4 border-t border-gray-100">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">Email Notifications (via free EmailJS)</h3>
+                  <div className="grid md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Service ID</label>
+                      <input 
+                        type="text" 
+                        value={configForm.emailjsServiceId} 
+                        onChange={e => setConfigForm({...configForm, emailjsServiceId: e.target.value})} 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        placeholder="service_xxx"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Template ID</label>
+                      <input 
+                        type="text" 
+                        value={configForm.emailjsTemplateId} 
+                        onChange={e => setConfigForm({...configForm, emailjsTemplateId: e.target.value})} 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        placeholder="template_xxx"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>
+                      <input 
+                        type="text" 
+                        value={configForm.emailjsPublicKey} 
+                        onChange={e => setConfigForm({...configForm, emailjsPublicKey: e.target.value})} 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        placeholder="Public Key"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Notification Email <span className="text-gray-400 font-normal">(Where alerts go)</span></label>
+                    <input 
+                      type="email" 
+                      value={configForm.notificationEmail} 
+                      onChange={e => setConfigForm({...configForm, notificationEmail: e.target.value})} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML like &lt;a href="..."&gt;)</span></label>
                   <textarea 
@@ -836,7 +916,7 @@ export default function App() {
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  {isSavingConfig ? 'Saving...' : 'Save Text Settings'}
+                  {isSavingConfig ? 'Saving...' : 'Save Settings'}
                 </button>
               </form>
             </div>
