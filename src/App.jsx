@@ -917,7 +917,7 @@ export default function App() {
                     Open the separate shirt design preview and feedback form here.
                   </p>
                   <a
-                    href="/shirt-feedback.html"
+                    href="/preview.html"
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors border border-gray-200"

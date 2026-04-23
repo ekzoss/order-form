@@ -6,7 +6,6 @@ import {
   Image as ImageIcon,
   Lock,
   LogOut,
-  MessageSquare,
   Save,
   Send,
   ShieldCheck,
@@ -88,7 +87,7 @@ const compressImage = (file) => new Promise((resolve) => {
   };
 });
 
-function ShirtFeedbackApp() {
+function PreviewApp() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('preview');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
@@ -657,6 +656,6 @@ function ShirtFeedbackApp() {
   );
 }
 
-export default ShirtFeedbackApp;
+export default PreviewApp;
 
 // Made with Bob

@@ -10,7 +10,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        shirtFeedback: resolve(__dirname, 'shirt-feedback.html'),
+        preview: resolve(__dirname, 'preview.html'),
       },
     },
   },
