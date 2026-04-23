@@ -901,8 +901,8 @@ export default function App() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[100px]"
                     />
                   </div>
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     disabled={isSavingConfig}
                     className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
@@ -910,6 +910,21 @@ export default function App() {
                     {isSavingConfig ? 'Saving...' : 'Save Settings'}
                   </button>
                 </form>
+
+                <div className="mt-6 pt-4 border-t border-gray-100">
+                  <h3 className="text-sm font-bold text-gray-900 mb-2">Shirt Feedback Preview Page</h3>
+                  <p className="text-sm text-gray-500 mb-3">
+                    Open the separate shirt design preview and feedback form here.
+                  </p>
+                  <a
+                    href="/shirt-feedback.html"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors border border-gray-200"
+                  >
+                    Open Shirt Feedback Page
+                  </a>
+                </div>
               </div>
 
               {/* Totals Summary Cards */}
