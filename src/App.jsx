@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingCart, 
   ShieldCheck, 
@@ -211,20 +211,40 @@ export default function App() {
 
   // --- Actions ---
 
-  const handleSaveConfig = async (e) => {
-    e.preventDefault();
+  const normalizedSavedConfig = useMemo(() => ({
+    pageTitle: storeConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
+    productHeader: storeConfig.productHeader || 'Austin Velocity 161 Diamond',
+    productDescription: storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
+    venmoUsername: storeConfig.venmoUsername || 'ekzoss',
+    cashappUsername: storeConfig.cashappUsername || 'KandiZoss',
+    pricePerShirt: storeConfig.pricePerShirt !== undefined ? storeConfig.pricePerShirt : 7.50,
+    notificationEmail: storeConfig.notificationEmail || '',
+    emailjsServiceId: storeConfig.emailjsServiceId || '',
+    emailjsTemplateId: storeConfig.emailjsTemplateId || '',
+    emailjsPublicKey: storeConfig.emailjsPublicKey || ''
+  }), [storeConfig]);
+
+  const hasUnsavedConfigChanges = JSON.stringify(configForm) !== JSON.stringify(normalizedSavedConfig);
+
+  const saveConfig = async () => {
     setIsSavingConfig(true);
     try {
       const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
       await setDoc(configRef, configForm, { merge: true });
-      // Temporary alert for admin feedback
       alert("Store settings updated successfully!");
+      return true;
     } catch (err) {
       console.error("Save config error", err);
       alert("Failed to save settings.");
+      return false;
     } finally {
       setIsSavingConfig(false);
     }
+  };
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    await saveConfig();
   };
 
   const handleImageUpload = async (e, side) => {
@@ -347,6 +367,19 @@ export default function App() {
     }
   };
 
+  const handleExitAdmin = async () => {
+    if (hasUnsavedConfigChanges) {
+      const shouldSave = window.confirm('You have unsaved changes. Would you like to save them before exiting admin?');
+      if (shouldSave) {
+        const saved = await saveConfig();
+        if (!saved) return;
+      }
+    }
+
+    setView('store');
+    setOrderSuccess(false);
+  };
+
   // Toggle paid status in Firestore
   const handleTogglePaid = async (orderId, currentPaidStatus) => {
     try {
@@ -446,28 +479,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Header */}
-        <header className="bg-white shadow-sm sticky top-0 z-10">
-          <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div 
-              className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer"
-              onClick={() => { setView('store'); setOrderSuccess(false); }}
-            >
-              <span>{storeConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form'}</span>
-            </div>
-            
-            {view === 'adminDashboard' && (
-              <button 
-                onClick={() => setView('store')}
-                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors bg-gray-100 px-3 py-1.5 rounded-lg"
-              >
-                <LogOut className="w-4 h-4" />
-                Exit Admin
-              </button>
-            )}
-          </div>
-        </header>
-
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           
           {/* --- VIEW: STOREFRONT --- */}
@@ -477,6 +488,9 @@ export default function App() {
               {/* Left Col: Product Info */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 
+                
+                <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
+
                 {/* Image Display Area */}
                 <div className="mb-6">
                   <div className="aspect-square bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
@@ -528,18 +542,15 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-
-                <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
-                
+               
                 {/* Product Description with HTML support */}
                 <div 
                   className="text-gray-600 mb-4 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
                   dangerouslySetInnerHTML={{ 
-                    __html: storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt." 
+                    __html: storeConfig.productDescription || "" 
                   }} 
                 />
                 
-                <div className="text-2xl font-bold text-indigo-600">${pricePerShirt.toFixed(2)} <span className="text-sm font-normal text-gray-500">/ shirt</span></div>
               </div>
 
               {/* Right Col: Order Form */}
@@ -728,7 +739,19 @@ export default function App() {
 
               {/* --- Image Upload Section --- */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings: Product Images</h2>
+                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings</h2>
+                
+                {/* Product Header */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Header</label>
+                  <input
+                    type="text"
+                    value={configForm.productHeader}
+                    onChange={e => setConfigForm({...configForm, productHeader: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                  />
+                </div>
+
                 <div className="grid md:grid-cols-2 gap-6">
                   
                   {/* Front Image Uploader */}
@@ -784,132 +807,115 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  
                 </div>
                 {uploadingImage && (
                   <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
                     <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
                   </p>
                 )}
-              </div>
-
-              {/* --- Text & Payment Settings --- */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings: Details & Payment</h2>
-                <form onSubmit={handleSaveConfig} className="space-y-4">
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Page Title (Top Bar)</label>
-                      <input 
-                        type="text" 
-                        value={configForm.pageTitle} 
-                        onChange={e => setConfigForm({...configForm, pageTitle: e.target.value})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Product Header</label>
-                      <input 
-                        type="text" 
-                        value={configForm.productHeader} 
-                        onChange={e => setConfigForm({...configForm, productHeader: e.target.value})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Venmo Username <span className="text-gray-400 font-normal">(without @)</span></label>
-                      <input 
-                        type="text" 
-                        value={configForm.venmoUsername} 
-                        onChange={e => setConfigForm({...configForm, venmoUsername: e.target.value})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Cash App Cashtag <span className="text-gray-400 font-normal">(without $)</span></label>
-                      <input 
-                        type="text" 
-                        value={configForm.cashappUsername} 
-                        onChange={e => setConfigForm({...configForm, cashappUsername: e.target.value})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        min="0"
-                        value={configForm.pricePerShirt} 
-                        onChange={e => setConfigForm({...configForm, pricePerShirt: parseFloat(e.target.value) || 0})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* EmailJS Settings */}
-                  <div className="pt-4 border-t border-gray-100">
-                    <h3 className="text-sm font-bold text-gray-900 mb-3">Email Notifications (via free EmailJS)</h3>
-                    <div className="grid md:grid-cols-3 gap-4 mb-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Service ID</label>
-                        <input 
-                          type="text" 
-                          value={configForm.emailjsServiceId} 
-                          onChange={e => setConfigForm({...configForm, emailjsServiceId: e.target.value})} 
+                <br></br>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML tags)</span></label>
+                  <textarea 
+                    value={configForm.productDescription} 
+                    onChange={e => setConfigForm({...configForm, productDescription: e.target.value})} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[150px]"
+                  />
+                </div>
+                <div className="pt-4 border-t border-gray-100">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">Payment</h3>
+                  <form onSubmit={handleSaveConfig} className="space-y-4">
+                    <div className="grid md:grid-cols-3 gap-4">
+                        <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={configForm.pricePerShirt}
+                          onChange={e => setConfigForm({...configForm, pricePerShirt: parseFloat(e.target.value) || 0})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="service_xxx"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Template ID</label>
-                        <input 
-                          type="text" 
-                          value={configForm.emailjsTemplateId} 
-                          onChange={e => setConfigForm({...configForm, emailjsTemplateId: e.target.value})} 
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Venmo Username <span className="text-gray-400 font-normal">(without @)</span></label>
+                        <input
+                          type="text"
+                          value={configForm.venmoUsername}
+                          onChange={e => setConfigForm({...configForm, venmoUsername: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="template_xxx"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>
-                        <input 
-                          type="text" 
-                          value={configForm.emailjsPublicKey} 
-                          onChange={e => setConfigForm({...configForm, emailjsPublicKey: e.target.value})} 
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Cash App Cashtag <span className="text-gray-400 font-normal">(without $)</span></label>
+                        <input
+                          type="text"
+                          value={configForm.cashappUsername}
+                          onChange={e => setConfigForm({...configForm, cashappUsername: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="Public Key"
                         />
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Admin Notification Email <span className="text-gray-400 font-normal">(Where alerts go)</span></label>
-                      <input 
-                        type="email" 
-                        value={configForm.notificationEmail} 
-                        onChange={e => setConfigForm({...configForm, notificationEmail: e.target.value})} 
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                        placeholder="you@example.com"
-                      />
-                    </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML like &lt;a href="..."&gt;)</span></label>
-                    <textarea 
-                      value={configForm.productDescription} 
-                      onChange={e => setConfigForm({...configForm, productDescription: e.target.value})} 
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[100px]"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isSavingConfig}
-                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    {isSavingConfig ? 'Saving...' : 'Save Settings'}
-                  </button>
-                </form>
+                    </div>
+
+                    {/* EmailJS Settings */}
+                    <div className="pt-4 border-t border-gray-100">
+                      <h3 className="text-sm font-bold text-gray-900 mb-3">Email Notifications (EmailJS)</h3>
+                                            <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Admin Notification Email <span className="text-gray-400 font-normal">(Where alerts go)</span></label>
+                        <input
+                          type="email"
+                          value={configForm.notificationEmail}
+                          onChange={e => setConfigForm({...configForm, notificationEmail: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                          placeholder="you@example.com"
+                        />
+                      </div>
+                      <div className="grid md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Service ID</label>
+                          <input
+                            type="text"
+                            value={configForm.emailjsServiceId}
+                            onChange={e => setConfigForm({...configForm, emailjsServiceId: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="service_xxx"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Template ID</label>
+                          <input
+                            type="text"
+                            value={configForm.emailjsTemplateId}
+                            onChange={e => setConfigForm({...configForm, emailjsTemplateId: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="template_xxx"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>
+                          <input
+                            type="text"
+                            value={configForm.emailjsPublicKey}
+                            onChange={e => setConfigForm({...configForm, emailjsPublicKey: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="Public Key"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSavingConfig}
+                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      {isSavingConfig ? 'Saving...' : 'Save Settings'}
+                    </button>
+                  </form>
+                </div>
 
                 <div className="mt-6 pt-4 border-t border-gray-100">
                   <h3 className="text-sm font-bold text-gray-900 mb-2">Shirt Feedback Preview Page</h3>
@@ -1077,6 +1083,16 @@ export default function App() {
                 >
                   <Printer className="w-5 h-5" />
                   Print Packaging Labels
+                </button>
+              </div>
+
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={handleExitAdmin}
+                  className="w-full max-w-md py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Exit Admin
                 </button>
               </div>
 

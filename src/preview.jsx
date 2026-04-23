@@ -259,19 +259,49 @@ function PreviewApp() {
     }));
   };
 
-  const handleSaveConfig = async (e) => {
-    e.preventDefault();
+  const normalizedSavedConfig = useMemo(
+    () => normalizeConfig(previewConfig),
+    [previewConfig]
+  );
+
+  const normalizedFormConfig = useMemo(
+    () => normalizeConfig(configForm),
+    [configForm]
+  );
+
+  const hasUnsavedConfigChanges = JSON.stringify(normalizedFormConfig) !== JSON.stringify(normalizedSavedConfig);
+
+  const saveConfig = async () => {
     setIsSavingConfig(true);
     try {
       const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'shirt_feedback_config', 'main');
-      await setDoc(configRef, normalizeConfig(configForm), { merge: true });
+      await setDoc(configRef, normalizedFormConfig, { merge: true });
       alert('Preview settings updated successfully.');
+      return true;
     } catch (err) {
       console.error('Save config error:', err);
       alert('Failed to save preview settings.');
+      return false;
     } finally {
       setIsSavingConfig(false);
     }
+  };
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    await saveConfig();
+  };
+
+  const handleExitAdmin = async () => {
+    if (hasUnsavedConfigChanges) {
+      const shouldSave = window.confirm('You have unsaved changes. Would you like to save them before exiting admin?');
+      if (shouldSave) {
+        const saved = await saveConfig();
+        if (!saved) return;
+      }
+    }
+
+    setView('preview');
   };
 
   const handleSubmitFeedback = async (e) => {
@@ -357,31 +387,6 @@ function PreviewApp() {
             />
           </div>
         )}
-
-        <header className="bg-white shadow-sm sticky top-0 z-10">
-          <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div
-              className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer"
-              onClick={() => {
-                setView('preview');
-                setFeedbackSubmitted(false);
-                setError('');
-              }}
-            >
-              <span>{previewConfig.pageTitle || DEFAULT_CONFIG.pageTitle}</span>
-            </div>
-
-            {view === 'adminDashboard' && (
-              <button
-                onClick={() => setView('preview')}
-                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors bg-gray-100 px-3 py-1.5 rounded-lg"
-              >
-                <LogOut className="w-4 h-4" />
-                Exit Admin
-              </button>
-            )}
-          </div>
-        </header>
 
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           {view === 'preview' && (
@@ -569,25 +574,14 @@ function PreviewApp() {
                   <div>
                     <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Preview Page Settings</h2>
                     <div className="space-y-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
-                          <input
-                            type="text"
-                            value={configForm.pageTitle}
-                            onChange={(e) => setConfigForm({ ...configForm, pageTitle: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Header</label>
-                          <input
-                            type="text"
-                            value={configForm.productHeader}
-                            onChange={(e) => setConfigForm({ ...configForm, productHeader: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          />
-                        </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Header</label>
+                        <input
+                          type="text"
+                          value={configForm.productHeader}
+                          onChange={(e) => setConfigForm({ ...configForm, productHeader: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
                       </div>
 
                       <div>
@@ -642,10 +636,10 @@ function PreviewApp() {
                             <button
                               type="button"
                               onClick={() => handleDeleteShirt(shirt.id)}
-                              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200"
+                              className="text-red-400 hover:text-red-600 transition-colors p-2"
+                              title="Delete Shirt"
                             >
-                              <Trash2 className="w-4 h-4" />
-                              Delete Shirt
+                              <Trash2 className="w-5 h-5" />
                             </button>
                           </div>
 
@@ -725,14 +719,25 @@ function PreviewApp() {
                         </div>
                         <button
                           onClick={() => handleDeleteFeedback(entry.id)}
-                          className="shrink-0 px-3 py-2 text-sm bg-red-50 text-red-700 rounded-lg border border-red-200 hover:bg-red-100 transition-colors"
+                          className="shrink-0 text-red-400 hover:text-red-600 transition-colors p-2"
+                          title="Delete Feedback"
                         >
-                          Delete
+                          <Trash2 className="w-5 h-5" />
                         </button>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={handleExitAdmin}
+                  className="w-full max-w-md py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Exit Admin
+                </button>
               </div>
             </div>
           )}
