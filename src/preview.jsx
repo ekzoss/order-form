@@ -6,9 +6,11 @@ import {
   Image as ImageIcon,
   Lock,
   LogOut,
+  Plus,
   Save,
   Send,
   ShieldCheck,
+  Trash2,
   Upload,
   X,
   ZoomIn,
@@ -47,12 +49,42 @@ const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
 
 const ADMIN_PASSWORD = 'admin123';
+
+const createEmptyShirt = (index = 1) => ({
+  id: `shirt-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+  title: '',
+  frontImage: null,
+  backImage: null,
+});
+
 const DEFAULT_CONFIG = {
   pageTitle: 'Shirt Design Preview & Feedback',
   productHeader: 'New Shirt Design Preview',
-  productDescription: 'Preview the proposed front and back shirt design below, then share any feedback you have in the feedback box.',
-  frontImage: null,
-  backImage: null,
+  productDescription: 'Preview the proposed shirt designs below, then share any feedback you have in the feedback box.',
+  shirts: [createEmptyShirt(1)],
+};
+
+const normalizeConfig = (data = {}) => {
+  const merged = {
+    ...DEFAULT_CONFIG,
+    ...data,
+  };
+
+  const shirts = Array.isArray(data.shirts) && data.shirts.length > 0
+    ? data.shirts.map((shirt, index) => ({
+        id: shirt.id || createEmptyShirt(index + 1).id,
+        title: shirt.title || '',
+        frontImage: shirt.frontImage || null,
+        backImage: shirt.backImage || null,
+      }))
+    : [createEmptyShirt(1)];
+
+  return {
+    pageTitle: merged.pageTitle || DEFAULT_CONFIG.pageTitle,
+    productHeader: merged.productHeader || DEFAULT_CONFIG.productHeader,
+    productDescription: merged.productDescription || DEFAULT_CONFIG.productDescription,
+    shirts,
+  };
 };
 
 const compressImage = (file) => new Promise((resolve) => {
@@ -94,9 +126,8 @@ function PreviewApp() {
 
   const [previewConfig, setPreviewConfig] = useState(DEFAULT_CONFIG);
   const [configForm, setConfigForm] = useState(DEFAULT_CONFIG);
-  const [activeTab, setActiveTab] = useState('front');
   const [zoomedImage, setZoomedImage] = useState(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingImageKey, setUploadingImageKey] = useState(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const [feedbackText, setFeedbackText] = useState('');
@@ -138,9 +169,9 @@ function PreviewApp() {
     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'shirt_feedback_config', 'main');
     const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
-        const data = { ...DEFAULT_CONFIG, ...docSnap.data() };
-        setPreviewConfig(data);
-        setConfigForm(data);
+        const normalized = normalizeConfig(docSnap.data());
+        setPreviewConfig(normalized);
+        setConfigForm(normalized);
       } else {
         setPreviewConfig(DEFAULT_CONFIG);
         setConfigForm(DEFAULT_CONFIG);
@@ -173,22 +204,59 @@ function PreviewApp() {
 
   const feedbackCount = useMemo(() => feedbackEntries.length, [feedbackEntries]);
 
-  const handleImageUpload = async (e, side) => {
+  const updateShirtInConfigForm = (shirtId, updater) => {
+    setConfigForm((prev) => ({
+      ...prev,
+      shirts: prev.shirts.map((shirt) => (
+        shirt.id === shirtId ? updater(shirt) : shirt
+      )),
+    }));
+  };
+
+  const handleImageUpload = async (e, shirtId, side) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploadingImage(true);
+    const uploadKey = `${shirtId}-${side}`;
+    setUploadingImageKey(uploadKey);
+
     try {
       const compressedBase64 = await compressImage(file);
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'shirt_feedback_config', 'main');
-      await setDoc(configRef, { [side]: compressedBase64 }, { merge: true });
+      setConfigForm((prev) => ({
+        ...prev,
+        shirts: prev.shirts.map((shirt) => (
+          shirt.id === shirtId ? { ...shirt, [side]: compressedBase64 } : shirt
+        )),
+      }));
     } catch (err) {
       console.error('Upload error:', err);
       alert('Failed to compress and upload image. Please try a smaller image.');
     } finally {
-      setUploadingImage(false);
+      setUploadingImageKey(null);
       e.target.value = '';
     }
+  };
+
+  const handleAddShirt = () => {
+    setConfigForm((prev) => ({
+      ...prev,
+      shirts: [...prev.shirts, createEmptyShirt(prev.shirts.length + 1)],
+    }));
+  };
+
+  const handleDeleteShirt = (shirtId) => {
+    if (configForm.shirts.length <= 1) {
+      alert('At least one preview shirt is required.');
+      return;
+    }
+
+    const confirmed = window.confirm('Delete this preview shirt?');
+    if (!confirmed) return;
+
+    setConfigForm((prev) => ({
+      ...prev,
+      shirts: prev.shirts.filter((shirt) => shirt.id !== shirtId),
+    }));
   };
 
   const handleSaveConfig = async (e) => {
@@ -196,7 +264,7 @@ function PreviewApp() {
     setIsSavingConfig(true);
     try {
       const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'shirt_feedback_config', 'main');
-      await setDoc(configRef, configForm, { merge: true });
+      await setDoc(configRef, normalizeConfig(configForm), { merge: true });
       alert('Preview settings updated successfully.');
     } catch (err) {
       console.error('Save config error:', err);
@@ -317,71 +385,71 @@ function PreviewApp() {
 
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           {view === 'preview' && (
-            <div className="grid md:grid-cols-2 gap-8 items-start">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <div className="mb-6">
-                  <div className="aspect-square bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
-                    {previewConfig[`${activeTab}Image`] ? (
-                      <>
-                        <img
-                          src={previewConfig[`${activeTab}Image`]}
-                          alt={`Shirt ${activeTab} preview`}
-                          className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                          onClick={() => setZoomedImage(previewConfig[`${activeTab}Image`])}
-                        />
-                        <button
-                          onClick={() => setZoomedImage(previewConfig[`${activeTab}Image`])}
-                          className="absolute bottom-4 right-4 bg-white/90 p-2.5 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
-                          title="Zoom Image"
-                        >
-                          <ZoomIn className="w-5 h-5" />
-                        </button>
-                      </>
-                    ) : (
-                      <div className="text-gray-400 flex flex-col items-center">
-                        <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
-                        <span className="text-sm">No {activeTab} preview uploaded yet</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 mt-4 justify-center">
-                    <button
-                      onClick={() => setActiveTab('front')}
-                      className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'front'
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      Front View
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('back')}
-                      className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'back'
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      Back View
-                    </button>
-                  </div>
-                </div>
-
+            <div className="space-y-8">
+              <section className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
                 <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
                   {previewConfig.productHeader || DEFAULT_CONFIG.productHeader}
                 </h1>
-
                 <div
                   className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
                   dangerouslySetInnerHTML={{
                     __html: previewConfig.productDescription || DEFAULT_CONFIG.productDescription,
                   }}
                 />
-              </div>
+              </section>
 
-              <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
+              <section className="space-y-8">
+                {previewConfig.shirts.map((shirt, index) => (
+                  <div key={shirt.id} className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="mb-6">
+                      <div className="text-sm font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                        Shirt {index + 1}
+                      </div>
+                      {shirt.title?.trim() && (
+                        <h2 className="text-2xl font-bold text-gray-900">{shirt.title}</h2>
+                      )}
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {['front', 'back'].map((side) => (
+                        <div key={side}>
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                              {side === 'front' ? 'Front View' : 'Back View'}
+                            </h3>
+                          </div>
+                          <div className="aspect-square bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
+                            {shirt[`${side}Image`] ? (
+                              <>
+                                <img
+                                  src={shirt[`${side}Image`]}
+                                  alt={`${shirt.title?.trim() || `Shirt ${index + 1}`} ${side} preview`}
+                                  className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
+                                  onClick={() => setZoomedImage(shirt[`${side}Image`])}
+                                />
+                                <button
+                                  onClick={() => setZoomedImage(shirt[`${side}Image`])}
+                                  className="absolute bottom-4 right-4 bg-white/90 p-2.5 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
+                                  title="Zoom Image"
+                                >
+                                  <ZoomIn className="w-5 h-5" />
+                                </button>
+                              </>
+                            ) : (
+                              <div className="text-gray-400 flex flex-col items-center">
+                                <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+                                <span className="text-sm">No {side} preview uploaded yet</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
+
+              <section className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
                 {feedbackSubmitted ? (
                   <div className="text-center py-8">
                     <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -389,7 +457,7 @@ function PreviewApp() {
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Feedback Submitted</h2>
                     <p className="text-gray-600 mb-8">
-                      Thank you for sharing your thoughts on the new shirt design.
+                      Thank you for sharing your thoughts on the new shirt designs.
                     </p>
                     <button
                       onClick={() => {
@@ -420,7 +488,7 @@ function PreviewApp() {
                         value={feedbackText}
                         onChange={(e) => setFeedbackText(e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-y min-h-[180px]"
-                        placeholder="Share your feedback about the shirt design..."
+                        placeholder="Share your feedback about any of the shirt previews above..."
                       />
                     </div>
 
@@ -438,7 +506,7 @@ function PreviewApp() {
                     </button>
                   </form>
                 )}
-              </div>
+              </section>
             </div>
           )}
 
@@ -497,101 +565,131 @@ function PreviewApp() {
               </div>
 
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Preview Images</h2>
-                <div className="grid md:grid-cols-2 gap-6">
+                <form onSubmit={handleSaveConfig} className="space-y-8">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Front Preview</label>
-                    <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {previewConfig.frontImage ? (
-                          <img src={previewConfig.frontImage} alt="front preview" className="w-full h-full object-cover" />
-                        ) : (
-                          <ImageIcon className="w-6 h-6 text-gray-400" />
-                        )}
-                      </div>
-                      <div className="flex-grow">
-                        <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload Front</span>
+                    <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Preview Page Settings</h2>
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
                           <input
-                            type="file"
-                            accept="image/jpeg, image/png"
-                            className="hidden"
-                            onChange={(e) => handleImageUpload(e, 'frontImage')}
-                            disabled={uploadingImage}
+                            type="text"
+                            value={configForm.pageTitle}
+                            onChange={(e) => setConfigForm({ ...configForm, pageTitle: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                           />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Back Preview</label>
-                    <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {previewConfig.backImage ? (
-                          <img src={previewConfig.backImage} alt="back preview" className="w-full h-full object-cover" />
-                        ) : (
-                          <ImageIcon className="w-6 h-6 text-gray-400" />
-                        )}
-                      </div>
-                      <div className="flex-grow">
-                        <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload Back</span>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Header</label>
                           <input
-                            type="file"
-                            accept="image/jpeg, image/png"
-                            className="hidden"
-                            onChange={(e) => handleImageUpload(e, 'backImage')}
-                            disabled={uploadingImage}
+                            type="text"
+                            value={configForm.productHeader}
+                            onChange={(e) => setConfigForm({ ...configForm, productHeader: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                           />
-                        </label>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
 
-                {uploadingImage && (
-                  <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
-                    <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
-                  </p>
-                )}
-              </div>
-
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Preview Page Settings</h2>
-                <form onSubmit={handleSaveConfig} className="space-y-4">
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
-                      <input
-                        type="text"
-                        value={configForm.pageTitle}
-                        onChange={(e) => setConfigForm({ ...configForm, pageTitle: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Header</label>
-                      <input
-                        type="text"
-                        value={configForm.productHeader}
-                        onChange={(e) => setConfigForm({ ...configForm, productHeader: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Description
+                        </label>
+                        <textarea
+                          value={configForm.productDescription}
+                          onChange={(e) => setConfigForm({ ...configForm, productDescription: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[110px]"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={configForm.productDescription}
-                      onChange={(e) => setConfigForm({ ...configForm, productDescription: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[110px]"
-                    />
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4 border-b pb-4">
+                      <div>
+                        <h2 className="text-lg font-bold text-gray-900">Preview Shirts</h2>
+                        <p className="text-sm text-gray-500">Add, remove, and upload front/back images for each preview shirt.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddShirt}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Preview Shirt
+                      </button>
+                    </div>
+
+                    <div className="space-y-6">
+                      {configForm.shirts.map((shirt, index) => (
+                        <div key={shirt.id} className="rounded-xl border border-gray-200 p-5 bg-gray-50">
+                          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
+                            <div className="flex-1">
+                              <div className="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">
+                                Shirt {index + 1}
+                              </div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Shirt Title <span className="text-gray-400 font-normal">(Optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={shirt.title}
+                                onChange={(e) => updateShirtInConfigForm(shirt.id, (current) => ({ ...current, title: e.target.value }))}
+                                className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
+                                placeholder=""
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteShirt(shirt.id)}
+                              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete Shirt
+                            </button>
+                          </div>
+
+                          <div className="grid md:grid-cols-2 gap-6">
+                            {[
+                              { side: 'frontImage', label: 'Front Preview' },
+                              { side: 'backImage', label: 'Back Preview' },
+                            ].map(({ side, label }) => (
+                              <div key={side}>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+                                <div className="flex items-center gap-4">
+                                  <div className="w-20 h-20 bg-white rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                                    {shirt[side] ? (
+                                      <img src={shirt[side]} alt={label} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <ImageIcon className="w-6 h-6 text-gray-400" />
+                                    )}
+                                  </div>
+                                  <div className="flex-grow">
+                                    <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200">
+                                      <Upload className="w-4 h-4" />
+                                      <span>{label === 'Front Preview' ? 'Upload Front' : 'Upload Back'}</span>
+                                      <input
+                                        type="file"
+                                        accept="image/jpeg, image/png"
+                                        className="hidden"
+                                        onChange={(e) => handleImageUpload(e, shirt.id, side)}
+                                        disabled={uploadingImageKey === `${shirt.id}-${side}`}
+                                      />
+                                    </label>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {uploadingImageKey && (
+                      <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
+                        <Upload className="w-4 h-4 animate-bounce" /> Compressing and preparing preview image...
+                      </p>
+                    )}
                   </div>
 
                   <button
