@@ -1,9 +1,9 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  ShoppingCart, 
-  ShieldCheck, 
-  Lock, 
-  LogOut, 
+import {
+  ShoppingCart,
+  ShieldCheck,
+  Lock,
+  LogOut,
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
@@ -16,6 +16,8 @@ import {
   Image as ImageIcon,
   Printer
 } from 'lucide-react';
+import ImageEditorModal from './ImageEditorModal';
+import BackgroundEditorModal from './BackgroundEditorModal';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -55,6 +57,105 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
 const ADMIN_PASSWORD = "admin123";
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
 
+// Helper function to generate solid color background as base64
+const generateSolidColorBackground = (color, width = 800, height = 1000) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.9);
+};
+
+// Default t-shirt backgrounds - solid colors
+const DEFAULT_TSHIRT_BACKGROUNDS = [
+  {
+    id: 'white',
+    name: 'White',
+    color: '#FFFFFF',
+    url: generateSolidColorBackground('#FFFFFF')
+  },
+  {
+    id: 'black',
+    name: 'Black',
+    color: '#000000',
+    url: generateSolidColorBackground('#000000')
+  },
+  {
+    id: 'gray',
+    name: 'Gray',
+    color: '#808080',
+    url: generateSolidColorBackground('#808080')
+  },
+  {
+    id: 'navy',
+    name: 'Navy',
+    color: '#001F3F',
+    url: generateSolidColorBackground('#001F3F')
+  },
+  {
+    id: 'red',
+    name: 'Red',
+    color: '#DC143C',
+    url: generateSolidColorBackground('#DC143C')
+  },
+  {
+    id: 'maroon',
+    name: 'Maroon',
+    color: '#800000',
+    url: generateSolidColorBackground('#800000')
+  },
+  {
+    id: 'green',
+    name: 'Forest Green',
+    color: '#228B22',
+    url: generateSolidColorBackground('#228B22')
+  },
+  {
+    id: 'royal',
+    name: 'Royal Blue',
+    color: '#4169E1',
+    url: generateSolidColorBackground('#4169E1')
+  },
+  {
+    id: 'purple',
+    name: 'Purple',
+    color: '#800080',
+    url: generateSolidColorBackground('#800080')
+  },
+  {
+    id: 'orange',
+    name: 'Orange',
+    color: '#FF8C00',
+    url: generateSolidColorBackground('#FF8C00')
+  },
+  {
+    id: 'brown',
+    name: 'Brown',
+    color: '#8B4513',
+    url: generateSolidColorBackground('#8B4513')
+  },
+  {
+    id: 'pink',
+    name: 'Pink',
+    color: '#FF69B4',
+    url: generateSolidColorBackground('#FF69B4')
+  },
+  {
+    id: 'yellow',
+    name: 'Gold',
+    color: '#FFD700',
+    url: generateSolidColorBackground('#FFD700')
+  },
+  {
+    id: 'lightblue',
+    name: 'Light Blue',
+    color: '#87CEEB',
+    url: generateSolidColorBackground('#87CEEB')
+  }
+];
+
 // --- Helper: Compress Image to Base64 ---
 // Compresses uploaded images so they fit safely within Firestore limits
 const compressImage = (file) => {
@@ -84,10 +185,79 @@ const compressImage = (file) => {
         }
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: true });
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8)); // 80% quality JPEG
+        
+        // Use PNG for files with transparency, JPEG for others
+        const isPNG = file.type === 'image/png';
+        const format = isPNG ? 'image/png' : 'image/jpeg';
+        const quality = isPNG ? 0.95 : 0.8;
+        
+        resolve(canvas.toDataURL(format, quality));
       };
+    };
+  });
+};
+
+// Composite design image on top of t-shirt background with proper PNG transparency handling
+const compositeImageWithTshirt = (designImage, tshirtBackgroundUrl, position = { x: 50, y: 28 }, sizePercent = 45) => {
+  return new Promise((resolve, reject) => {
+    // Create canvas with explicit alpha channel
+    const canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 1000;
+    const ctx = canvas.getContext('2d', {
+      alpha: true,
+      willReadFrequently: false
+    });
+    
+    // Load t-shirt background image
+    const tshirtImg = new window.Image();
+    tshirtImg.crossOrigin = 'anonymous';
+    tshirtImg.src = tshirtBackgroundUrl;
+    
+    tshirtImg.onload = () => {
+      // Draw the t-shirt background (no color tinting, just use the image as-is)
+      ctx.drawImage(tshirtImg, 0, 0, canvas.width, canvas.height);
+      
+      // Now load and composite the design on top
+      const designImg = new window.Image();
+      designImg.crossOrigin = 'anonymous';
+      designImg.src = designImage;
+      
+      designImg.onload = () => {
+        // Calculate design size based on percentage
+        const maxDesignWidth = canvas.width * (sizePercent / 100);
+        
+        let designWidth = maxDesignWidth;
+        let designHeight = (designImg.height / designImg.width) * designWidth;
+        
+        // Position based on percentage (x, y are center points)
+        const x = (canvas.width * (position.x / 100)) - (designWidth / 2);
+        const y = (canvas.height * (position.y / 100));
+        
+        // Draw design with full alpha support
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(designImg, x, y, designWidth, designHeight);
+        ctx.restore();
+        
+        // Export as PNG to preserve transparency
+        try {
+          const dataUrl = canvas.toDataURL('image/png', 1.0);
+          resolve(dataUrl);
+        } catch (err) {
+          reject(new Error('Failed to export composite image: ' + err.message));
+        }
+      };
+      
+      designImg.onerror = (err) => {
+        reject(new Error('Failed to load design image: ' + err));
+      };
+    };
+    
+    tshirtImg.onerror = (err) => {
+      reject(new Error('Failed to load t-shirt template: ' + err));
     };
   });
 };
@@ -115,6 +285,38 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
   const [zoomedImage, setZoomedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  
+  // Image Editor Modal State
+  const [imageEditorModal, setImageEditorModal] = useState({
+    isOpen: false,
+    side: null
+  });
+  
+  // Background Editor Modal State
+  const [backgroundEditorModal, setBackgroundEditorModal] = useState({
+    isOpen: false,
+    image: null,
+    imageName: ''
+  });
+  
+  // T-shirt background state (always enabled now)
+  const [selectedTshirtBg, setSelectedTshirtBg] = useState({
+    frontImage: DEFAULT_TSHIRT_BACKGROUNDS[0].url,
+    backImage: DEFAULT_TSHIRT_BACKGROUNDS[0].url
+  });
+  const [tshirtBackgrounds, setTshirtBackgrounds] = useState(DEFAULT_TSHIRT_BACKGROUNDS);
+  const [designImage, setDesignImage] = useState({ frontImage: null, backImage: null });
+  const [previewImage, setPreviewImage] = useState({ frontImage: null, backImage: null });
+  
+  // Design positioning and sizing state (percentage-based for responsiveness)
+  const [designPosition, setDesignPosition] = useState({
+    frontImage: { x: 50, y: 28 }, // x, y as percentages
+    backImage: { x: 50, y: 28 }
+  });
+  const [designSize, setDesignSize] = useState({
+    frontImage: 45, // width as percentage of canvas
+    backImage: 45
+  });
 
   // Form State
   const [name, setName] = useState('');
@@ -159,9 +361,26 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. Fetch Config & Orders ---
+  // --- 2. Fetch Config, T-shirt Backgrounds & Orders ---
   useEffect(() => {
     if (!user) return;
+
+    // Fetch T-shirt Background Library
+    const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+    const unsubscribeBgLibrary = onSnapshot(bgLibraryRef, (docSnap) => {
+      if (docSnap.exists() && docSnap.data().library) {
+        const customBackgrounds = docSnap.data().library;
+        // Filter out any custom backgrounds that have the same ID as defaults
+        const filteredCustom = customBackgrounds.filter(
+          bg => !DEFAULT_TSHIRT_BACKGROUNDS.find(def => def.id === bg.id)
+        );
+        // Merge defaults with custom backgrounds (defaults first)
+        setTshirtBackgrounds([...DEFAULT_TSHIRT_BACKGROUNDS, ...filteredCustom]);
+      } else {
+        // No custom backgrounds in Firestore, use defaults only
+        setTshirtBackgrounds(DEFAULT_TSHIRT_BACKGROUNDS);
+      }
+    });
 
     // Fetch Store Config (Images & Text)
     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
@@ -184,7 +403,10 @@ export default function App() {
       }
     });
 
-    return () => unsubscribeConfig();
+    return () => {
+      unsubscribeBgLibrary();
+      unsubscribeConfig();
+    };
   }, [user]);
 
   useEffect(() => {
@@ -254,15 +476,230 @@ export default function App() {
     setUploadingImage(true);
     try {
       const compressedBase64 = await compressImage(file);
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      
+      // Store the design image temporarily
+      setDesignImage(prev => ({ ...prev, [side]: compressedBase64 }));
+      
+      // Always composite with t-shirt background
+      const finalImage = await compositeImageWithTshirt(
+        compressedBase64,
+        selectedTshirtBg[side],
+        designPosition[side],
+        designSize[side]
+      );
+      
+      // Update preview
+      setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
       
       // Update config document in Firestore
-      await setDoc(configRef, { [side]: compressedBase64 }, { merge: true });
+      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      await setDoc(configRef, { [side]: finalImage }, { merge: true });
     } catch (err) {
       console.error("Upload error", err);
       alert("Failed to compress and upload image. Please try a smaller image.");
     } finally {
       setUploadingImage(false);
+    }
+  };
+  
+  // Handle t-shirt background selection change
+  const handleTshirtBgChange = async (side, bgUrl) => {
+    setSelectedTshirtBg(prev => ({ ...prev, [side]: bgUrl }));
+    
+    // If we have a design, update preview with new background
+    if (designImage[side]) {
+      setUploadingImage(true);
+      try {
+        const finalImage = await compositeImageWithTshirt(
+          designImage[side],
+          bgUrl,
+          designPosition[side],
+          designSize[side]
+        );
+        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
+        
+        // Update Firestore
+        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+        await setDoc(configRef, { [side]: finalImage }, { merge: true });
+      } catch (err) {
+        console.error("Color change error", err);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+  };
+  
+  // Handle design position change
+  const handleDesignPositionChange = async (side, axis, value) => {
+    const newPosition = { ...designPosition[side], [axis]: parseFloat(value) };
+    setDesignPosition(prev => ({ ...prev, [side]: newPosition }));
+    
+    // If we have a design, update preview
+    if (designImage[side]) {
+      setUploadingImage(true);
+      try {
+        const finalImage = await compositeImageWithTshirt(
+          designImage[side],
+          selectedTshirtBg[side],
+          newPosition,
+          designSize[side]
+        );
+        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
+        
+        // Update Firestore
+        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+        await setDoc(configRef, { [side]: finalImage }, { merge: true });
+      } catch (err) {
+        console.error("Position change error", err);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+  };
+  
+  // Handle design size change
+  const handleDesignSizeChange = async (side, value) => {
+    const newSize = parseFloat(value);
+    setDesignSize(prev => ({ ...prev, [side]: newSize }));
+    
+    // If we have a design, update preview
+    if (designImage[side]) {
+      setUploadingImage(true);
+      try {
+        const finalImage = await compositeImageWithTshirt(
+          designImage[side],
+          selectedTshirtBg[side],
+          designPosition[side],
+          newSize
+        );
+        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
+        
+        // Update Firestore
+        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+        await setDoc(configRef, { [side]: finalImage }, { merge: true });
+      } catch (err) {
+        console.error("Size change error", err);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+  };
+  
+  // Open image editor modal
+  const handleOpenImageEditor = (side) => {
+    setImageEditorModal({
+      isOpen: true,
+      side: side
+    });
+  };
+  
+  // Close image editor modal
+  const handleCloseImageEditor = () => {
+    setImageEditorModal({
+      isOpen: false,
+      side: null
+    });
+  };
+  
+  // Save changes from image editor modal
+  const handleSaveImageEditor = async (data) => {
+    console.log('handleSaveImageEditor called with data:', data);
+    const { designImage: newDesignImage, selectedBackground, position, size, previewImage: newPreviewImage } = data;
+    const side = imageEditorModal.side;
+    
+    console.log('Side:', side);
+    console.log('Preview image length:', newPreviewImage?.length);
+    
+    if (!side) {
+      const error = new Error("No side specified");
+      console.error('Error:', error);
+      throw error;
+    }
+    
+    try {
+      // Update all the state first
+      console.log('Updating state...');
+      setDesignImage(prev => ({ ...prev, [side]: newDesignImage }));
+      setSelectedTshirtBg(prev => ({ ...prev, [side]: selectedBackground }));
+      setDesignPosition(prev => ({ ...prev, [side]: position }));
+      setDesignSize(prev => ({ ...prev, [side]: size }));
+      setPreviewImage(prev => ({ ...prev, [side]: newPreviewImage }));
+      
+      // Update Firestore
+      console.log('Updating Firestore...');
+      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      await setDoc(configRef, { [side]: newPreviewImage }, { merge: true });
+      
+      console.log('Firestore update successful');
+      console.log('Save completed successfully');
+    } catch (err) {
+      console.error('Error in handleSaveImageEditor:', err);
+      console.error('Error details:', err.message, err.stack);
+      throw err;
+    }
+  };
+  
+  // Handle uploading a new t-shirt background - opens editor modal
+  const handleTshirtBgUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+      const compressedBase64 = await compressImage(file);
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
+      
+      // Open the background editor modal
+      setBackgroundEditorModal({
+        isOpen: true,
+        image: compressedBase64,
+        imageName: fileName
+      });
+    } catch (err) {
+      console.error("Background upload error", err);
+      alert("Failed to upload t-shirt background.");
+    }
+  };
+  
+  // Handle saving background from editor modal
+  const handleSaveBackground = async (data) => {
+    const { url, name } = data;
+    
+    try {
+      const newBg = {
+        id: `custom-${Date.now()}`,
+        name: name,
+        url: url
+      };
+      const updatedBackgrounds = [...tshirtBackgrounds, newBg];
+      setTshirtBackgrounds(updatedBackgrounds);
+      
+      // Save to Firestore
+      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+      await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
+    } catch (err) {
+      console.error("Background save error", err);
+      throw err; // Re-throw so modal can show error
+    }
+  };
+  
+  // Close background editor modal
+  const handleCloseBackgroundEditor = () => {
+    setBackgroundEditorModal({
+      isOpen: false,
+      image: null,
+      imageName: ''
+    });
+  };
+  
+  // Handle deleting a custom t-shirt background
+  const handleDeleteTshirtBg = async (bgId) => {
+    if (bgId.startsWith('custom-')) {
+      const updatedBackgrounds = tshirtBackgrounds.filter(bg => bg.id !== bgId);
+      setTshirtBackgrounds(updatedBackgrounds);
+      
+      // Save to Firestore
+      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+      await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
     }
   };
 
@@ -479,6 +916,30 @@ export default function App() {
           </div>
         )}
 
+        {/* Image Editor Modal */}
+        <ImageEditorModal
+          isOpen={imageEditorModal.isOpen}
+          onClose={handleCloseImageEditor}
+          side={imageEditorModal.side}
+          initialDesignImage={imageEditorModal.side ? designImage[imageEditorModal.side] : null}
+          initialBackground={imageEditorModal.side ? selectedTshirtBg[imageEditorModal.side] : DEFAULT_TSHIRT_BACKGROUNDS[0].url}
+          initialPosition={imageEditorModal.side ? designPosition[imageEditorModal.side] : { x: 50, y: 28 }}
+          initialSize={imageEditorModal.side ? designSize[imageEditorModal.side] : 45}
+          tshirtBackgrounds={tshirtBackgrounds}
+          onSave={handleSaveImageEditor}
+          compositeImageWithTshirt={compositeImageWithTshirt}
+          compressImage={compressImage}
+        />
+
+        {/* Background Editor Modal */}
+        <BackgroundEditorModal
+          isOpen={backgroundEditorModal.isOpen}
+          onClose={handleCloseBackgroundEditor}
+          onSave={handleSaveBackground}
+          initialImage={backgroundEditorModal.image}
+          imageName={backgroundEditorModal.imageName}
+        />
+
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           
           {/* --- VIEW: STOREFRONT --- */}
@@ -486,23 +947,35 @@ export default function App() {
             <div className="grid md:grid-cols-2 gap-8 items-start">
               
               {/* Left Col: Product Info */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                
-                
-                <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
+              <div className="space-y-6">
+                {/* Product Title & Description */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  <h1 className="text-3xl font-extrabold text-gray-900 mb-4">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
+                  
+                  {/* Product Description with HTML support */}
+                  <div
+                    className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
+                    dangerouslySetInnerHTML={{
+                      __html: storeConfig.productDescription || ""
+                    }}
+                  />
+                </div>
 
-                {/* Image Display Area */}
-                <div className="mb-6">
-                  <div className="aspect-square bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
+                {/* Shirt Preview Section */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  <h2 className="text-xl font-bold text-gray-900 mb-4">Preview</h2>
+                  
+                  {/* Image Display Area */}
+                  <div className="aspect-[4/5] bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
                     {storeConfig[`${activeTab}Image`] ? (
                       <>
-                        <img 
-                          src={storeConfig[`${activeTab}Image`]} 
-                          alt={`T-shirt ${activeTab} view`} 
+                        <img
+                          src={storeConfig[`${activeTab}Image`]}
+                          alt={`T-shirt ${activeTab} view`}
                           className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
                           onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
                         />
-                        <button 
+                        <button
                           onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
                           className="absolute bottom-4 right-4 bg-white/90 p-2.5 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
                           title="Zoom Image"
@@ -520,21 +993,21 @@ export default function App() {
                   
                   {/* Front / Back Toggles */}
                   <div className="flex gap-2 mt-4 justify-center">
-                    <button 
+                    <button
                       onClick={() => setActiveTab('front')}
                       className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'front' 
-                          ? 'bg-indigo-600 text-white shadow-md' 
+                        activeTab === 'front'
+                          ? 'bg-indigo-600 text-white shadow-md'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
                       Front View
                     </button>
-                    <button 
+                    <button
                       onClick={() => setActiveTab('back')}
                       className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'back' 
-                          ? 'bg-indigo-600 text-white shadow-md' 
+                        activeTab === 'back'
+                          ? 'bg-indigo-600 text-white shadow-md'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
@@ -542,15 +1015,6 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-               
-                {/* Product Description with HTML support */}
-                <div 
-                  className="text-gray-600 mb-4 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
-                  dangerouslySetInnerHTML={{ 
-                    __html: storeConfig.productDescription || "" 
-                  }} 
-                />
-                
               </div>
 
               {/* Right Col: Order Form */}
@@ -729,21 +1193,15 @@ export default function App() {
                   <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
                   <p className="text-gray-500">Manage your store settings and view orders.</p>
                 </div>
-                <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
-                   <span className="text-sm text-gray-500 uppercase tracking-wider font-semibold">Total Revenue</span>
-                   <span className="text-2xl font-bold text-green-600">
-                     ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0).toFixed(2)}
-                   </span>
-                </div>
               </div>
 
               {/* --- Image Upload Section --- */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings</h2>
                 
-                {/* Product Header */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Header</label>
+                {/* Product Title */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Title</label>
                   <input
                     type="text"
                     value={configForm.productHeader}
@@ -752,77 +1210,22 @@ export default function App() {
                   />
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6">
-                  
-                  {/* Front Image Uploader */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Front Image (.jpg)</label>
-                    <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {storeConfig.frontImage ? (
-                          <img src={storeConfig.frontImage} alt="front" className="w-full h-full object-cover" />
-                        ) : (
-                          <ImageIcon className="w-6 h-6 text-gray-400" />
-                        )}
-                      </div>
-                      <div className="flex-grow">
-                        <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 relative overflow-hidden group">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload Front</span>
-                          <input 
-                            type="file" 
-                            accept="image/jpeg, image/png" 
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full hidden group-hover:block" 
-                            onChange={(e) => handleImageUpload(e, 'frontImage')} 
-                            disabled={uploadingImage} 
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Back Image Uploader */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Back Image (.jpg)</label>
-                    <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {storeConfig.backImage ? (
-                          <img src={storeConfig.backImage} alt="back" className="w-full h-full object-cover" />
-                        ) : (
-                          <ImageIcon className="w-6 h-6 text-gray-400" />
-                        )}
-                      </div>
-                      <div className="flex-grow">
-                        <label className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 relative overflow-hidden group">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload Back</span>
-                          <input 
-                            type="file" 
-                            accept="image/jpeg, image/png" 
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full hidden group-hover:block" 
-                            onChange={(e) => handleImageUpload(e, 'backImage')} 
-                            disabled={uploadingImage} 
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                  
+                {/* Product Description */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML tags)</span></label>
+                  <textarea
+                    value={configForm.productDescription}
+                    onChange={e => setConfigForm({...configForm, productDescription: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[150px]"
+                  />
                 </div>
+                
                 {uploadingImage && (
                   <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
                     <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
                   </p>
                 )}
                 <br></br>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML tags)</span></label>
-                  <textarea 
-                    value={configForm.productDescription} 
-                    onChange={e => setConfigForm({...configForm, productDescription: e.target.value})} 
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[150px]"
-                  />
-                </div>
                 <div className="pt-4 border-t border-gray-100">
                   <h3 className="text-sm font-bold text-gray-900 mb-3">Payment</h3>
                   <form onSubmit={handleSaveConfig} className="space-y-4">
@@ -906,45 +1309,169 @@ export default function App() {
                       </div>
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={isSavingConfig}
-                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                    >
-                      <Save className="w-4 h-4" />
-                      {isSavingConfig ? 'Saving...' : 'Save Settings'}
-                    </button>
+                    {/* T-shirt Background Library Management */}
+                    <div className="mt-6 pt-6 border-t border-gray-200">
+                      <h3 className="text-sm font-bold text-gray-900 mb-3">T-shirt Background Library</h3>
+                      <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing designs. These will be available for both front and back images.</p>
+                      
+                      {/* Solid Color Backgrounds - Quarter Size, Single Row */}
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
+                        <div className="flex flex-wrap gap-2">
+                          {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
+                            <div key={bg.id} className="relative group">
+                              <div className="w-12 h-12 rounded border-2 border-gray-300 overflow-hidden">
+                                <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                              </div>
+                              <p className="text-[10px] text-gray-600 mt-0.5 text-center truncate w-12">{bg.name}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Custom/Graphical Backgrounds - Half Size Grid */}
+                      {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
+                          <div className="grid grid-cols-6 md:grid-cols-8 gap-2 mb-3">
+                            {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
+                              <div key={bg.id} className="relative group">
+                                <div className="aspect-square rounded border-2 border-gray-300 overflow-hidden">
+                                  <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                                </div>
+                                <p className="text-[10px] text-gray-600 mt-0.5 truncate">{bg.name}</p>
+                                {bg.id.startsWith('custom-') && (
+                                  <button
+                                    onClick={() => handleDeleteTshirtBg(bg.id)}
+                                    className="absolute top-0.5 right-0.5 bg-red-500 text-white p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium border border-gray-300">
+                        <Upload className="w-4 h-4" />
+                        <span>Add T-shirt Background</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg, image/png"
+                          className="hidden"
+                          onChange={handleTshirtBgUpload}
+                        />
+                      </label>
+                    </div>
+
                   </form>
                 </div>
-
-                <div className="mt-6 pt-4 border-t border-gray-100">
-                  <h3 className="text-sm font-bold text-gray-900 mb-2">Shirt Feedback Preview Page</h3>
-                  <p className="text-sm text-gray-500 mb-3">
-                    Open the separate shirt design preview and feedback form here.
-                  </p>
-                  <a
-                    href="/preview.html"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors border border-gray-200"
-                  >
-                    Open Shirt Feedback Page
-                  </a>
-                </div>
               </div>
 
-              {/* Totals Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {SIZES.map(size => (
-                  <div key={size} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-                    <span className="text-gray-400 text-sm font-bold mb-1">SIZE {size}</span>
-                    <span className="text-3xl font-extrabold text-indigo-600">{sizeTotals[size]}</span>
+              {/* Orders & Shirt Designs Section Title */}
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Orders & Shirt Designs</h2>
+              </div>
+
+              {/* Combined Orders Section - Images, Totals, and Table */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Shirt 1</h3>
+                
+                {/* Shirt Design Previews - 50% smaller */}
+                <div className="grid md:grid-cols-2 gap-4 mb-6">
+                  {/* Front Image Preview */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Front Image</label>
+                    <div className="w-full max-w-[200px] mx-auto">
+                      <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
+                        {previewImage.frontImage || storeConfig.frontImage ? (
+                          <img src={previewImage.frontImage || storeConfig.frontImage} alt="front" className="w-full h-full object-contain" />
+                        ) : (
+                          <ImageIcon className="w-12 h-12 text-gray-400" />
+                        )}
+                        <button
+                          onClick={() => handleOpenImageEditor('frontImage')}
+                          className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                          title="Modify Front Image"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        {(previewImage.frontImage || storeConfig.frontImage) && (
+                          <button
+                            onClick={() => setZoomedImage(previewImage.frontImage || storeConfig.frontImage)}
+                            className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                            title="Zoom Image"
+                          >
+                            <ZoomIn className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
 
-              {/* Orders Table */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  {/* Back Image Preview */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Back Image</label>
+                    <div className="w-full max-w-[200px] mx-auto">
+                      <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
+                        {previewImage.backImage || storeConfig.backImage ? (
+                          <img src={previewImage.backImage || storeConfig.backImage} alt="back" className="w-full h-full object-contain" />
+                        ) : (
+                          <ImageIcon className="w-12 h-12 text-gray-400" />
+                        )}
+                        <button
+                          onClick={() => handleOpenImageEditor('backImage')}
+                          className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                          title="Modify Back Image"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        {(previewImage.backImage || storeConfig.backImage) && (
+                          <button
+                            onClick={() => setZoomedImage(previewImage.backImage || storeConfig.backImage)}
+                            className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                            title="Zoom Image"
+                          >
+                            <ZoomIn className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Totals Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
+                  {SIZES.map(size => (
+                    <div key={size} className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+                      <span className="text-gray-500 text-xs font-bold mb-1">SIZE {size}</span>
+                      <span className="text-2xl font-extrabold text-indigo-600">{sizeTotals[size]}</span>
+                    </div>
+                  ))}
+                  {/* Total Revenue */}
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex flex-col items-center justify-center">
+                    <span className="text-green-700 text-xs font-bold mb-1">REVENUE</span>
+                    <span className="text-2xl font-extrabold text-green-600">
+                      ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {/* Print Labels Button */}
+                  <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
+                    <button
+                      onClick={() => window.print()}
+                      className="text-white font-medium transition-colors flex items-center gap-2 text-xs hover:text-gray-200"
+                      title="Print Packaging Labels"
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span className="hidden lg:inline">Print</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Orders Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm text-gray-600">
                     <thead className="bg-gray-50 text-gray-700 border-b border-gray-200 font-semibold uppercase text-xs">
@@ -1075,24 +1602,30 @@ export default function App() {
                 </div>
               </div>
 
-              {/* --- NEW: Print Labels Button --- */}
-              <div className="flex justify-end mt-4">
+              <div className="flex justify-center gap-4 pt-2">
                 <button
-                  onClick={() => window.print()}
-                  className="px-6 py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm"
+                  onClick={async () => {
+                    setView('store');
+                    setOrderSuccess(false);
+                  }}
+                  className="flex-1 max-w-xs py-3 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                  <Printer className="w-5 h-5" />
-                  Print Packaging Labels
+                  <X className="w-4 h-4" />
+                  Cancel
                 </button>
-              </div>
-
-              <div className="flex justify-center pt-2">
                 <button
-                  onClick={handleExitAdmin}
-                  className="w-full max-w-md py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  onClick={async () => {
+                    if (hasUnsavedConfigChanges) {
+                      const saved = await saveConfig();
+                      if (!saved) return;
+                    }
+                    setView('store');
+                    setOrderSuccess(false);
+                  }}
+                  className="flex-1 max-w-xs py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                  <LogOut className="w-4 h-4" />
-                  Exit Admin
+                  <Save className="w-4 h-4" />
+                  Save and Exit
                 </button>
               </div>
 
