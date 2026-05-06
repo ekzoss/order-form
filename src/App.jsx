@@ -292,6 +292,12 @@ export default function App() {
   });
   const [configForm, setConfigForm] = useState({ ...globalConfig });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  
+  // Feedback form state (for preview designs)
+  const [feedbackByDesign, setFeedbackByDesign] = useState({});
+  const [submittingFeedback, setSubmittingFeedback] = useState({});
+  const [submittedFeedback, setSubmittedFeedback] = useState({}); // Track which designs have submitted feedback
+  const [feedbackList, setFeedbackList] = useState([]); // All feedback from Firestore
 
   // Design Management State
   const [designs, setDesigns] = useState([]);
@@ -499,7 +505,23 @@ export default function App() {
       setAdminError("Failed to load orders.");
     });
 
-    return () => unsubscribeOrders();
+    // Fetch Feedback
+    const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
+    const unsubscribeFeedback = onSnapshot(feedbackRef, (snapshot) => {
+      const fetchedFeedback = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      fetchedFeedback.sort((a, b) => b.timestamp - a.timestamp);
+      setFeedbackList(fetchedFeedback);
+    }, (err) => {
+      console.error("Error fetching feedback:", err);
+    });
+
+    return () => {
+      unsubscribeOrders();
+      unsubscribeFeedback();
+    };
   }, [user, view]);
 
   // --- Get Selected Design ---
@@ -716,6 +738,19 @@ export default function App() {
     }));
   };
 
+  const handleChangeDesignStatus = async (designId, newStatus) => {
+    try {
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      await updateDoc(designRef, {
+        status: newStatus,
+        updatedAt: Date.now()
+      });
+    } catch (err) {
+      console.error('Error updating design status:', err);
+      alert('Failed to update design status');
+    }
+  };
+
   const saveAllDesignEdits = async () => {
     const editedDesignIds = Object.keys(designEdits);
     if (editedDesignIds.length === 0) return true;
@@ -893,6 +928,70 @@ export default function App() {
     setOrderModalNotes('');
     // Clear the cart
     setSizesByDesign({});
+  };
+
+  // Handle feedback submission for preview designs
+  const handleSubmitFeedback = async (designId) => {
+    const feedback = feedbackByDesign[designId] || '';
+    if (!feedback.trim()) {
+      alert('Please enter your feedback before submitting.');
+      return;
+    }
+
+    const design = designs.find(d => d.id === designId);
+    if (!design) return;
+
+    setSubmittingFeedback(prev => ({ ...prev, [designId]: true }));
+
+    try {
+      // Save feedback to Firestore
+      const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
+      const feedbackDoc = {
+        designId: designId,
+        designName: design.name,
+        feedback: feedback,
+        timestamp: Date.now(),
+        createdAt: new Date().toISOString()
+      };
+      
+      await addDoc(feedbackRef, feedbackDoc);
+
+      // Send notification email if EmailJS is configured
+      if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId &&
+          globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
+        const emailParams = {
+          to_email: globalConfig.notificationEmail,
+          subject: `New Feedback: ${design.name}`,
+          message: `New feedback received for design "${design.name}":\n\n${feedback}\n\nSubmitted: ${new Date().toLocaleString()}`
+        };
+
+        await emailjs.send(
+          globalConfig.emailjsServiceId,
+          globalConfig.emailjsTemplateId,
+          emailParams,
+          globalConfig.emailjsPublicKey
+        );
+      }
+
+      // Mark as submitted
+      setSubmittedFeedback(prev => ({ ...prev, [designId]: true }));
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      alert('Failed to submit feedback. Please try again.');
+    } finally {
+      setSubmittingFeedback(prev => ({ ...prev, [designId]: false }));
+    }
+  };
+
+  // Handle deleting feedback
+  const handleDeleteFeedback = async (feedbackId) => {
+    try {
+      const feedbackRef = doc(db, 'artifacts', appId, 'public', 'data', 'feedback', feedbackId);
+      await deleteDoc(feedbackRef);
+    } catch (err) {
+      console.error('Error deleting feedback:', err);
+      alert('Failed to delete feedback');
+    }
   };
   
   // Handle uploading a new t-shirt background - opens editor modal
@@ -1213,12 +1312,18 @@ export default function App() {
           
           {view === 'store' && designs.length > 0 && (
             <div className="space-y-8">
-              {designs.map(design => (
+              {designs.filter(design => design.status !== 'closed').map(design => {
+                const isPreview = design.status === 'preview';
+                return (
                 <div key={design.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                   {/* Title and Price */}
                   <div className="mb-4 flex items-center justify-between">
                     <h1 className="text-2xl font-bold text-gray-900">{design.productHeader || design.name}</h1>
-                    <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.pricePerShirt.toFixed(2)} per shirt</p>
+                    {isPreview ? (
+                      <p className="text-lg text-yellow-600 font-semibold whitespace-nowrap ml-4">(Preview)</p>
+                    ) : (
+                      <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.pricePerShirt.toFixed(2)} per shirt</p>
+                    )}
                   </div>
 
                   {/* Description */}
@@ -1294,50 +1399,84 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Size Selection for this design */}
+                  {/* Size Selection or Feedback Form */}
                   <div className="pt-6">
-                    <div className="grid grid-cols-5 gap-2">
-                      {SIZES.map(size => {
-                        const designSizes = sizesByDesign[design.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
-                        return (
-                          <div key={size} className="flex flex-col items-center">
-                            <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={designSizes[size] === 0 ? '' : designSizes[size]}
-                              onChange={(e) => handleSizeChange(design.id, size, e.target.value)}
-                              placeholder="0"
-                              className="w-full text-center px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
+                    {isPreview ? (
+                      // Feedback form for preview designs
+                      <div className="space-y-3">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Share your feedback on this design:
+                        </label>
+                        <textarea
+                          value={feedbackByDesign[design.id] || ''}
+                          onChange={(e) => setFeedbackByDesign(prev => ({ ...prev, [design.id]: e.target.value }))}
+                          placeholder="What do you think about this design? Any suggestions?"
+                          disabled={submittedFeedback[design.id]}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none resize-y min-h-[100px] ${
+                            submittedFeedback[design.id] ? 'bg-gray-50 cursor-not-allowed' : ''
+                          }`}
+                        />
+                        <button
+                          onClick={() => handleSubmitFeedback(design.id)}
+                          disabled={submittingFeedback[design.id] || submittedFeedback[design.id]}
+                          className={`w-full py-3 rounded-lg font-bold text-white transition-all ${
+                            submittedFeedback[design.id]
+                              ? 'bg-green-500 cursor-not-allowed'
+                              : submittingFeedback[design.id]
+                              ? 'bg-yellow-300 cursor-not-allowed'
+                              : 'bg-yellow-600 hover:bg-yellow-700'
+                          }`}
+                        >
+                          {submittedFeedback[design.id]
+                            ? 'Thank you for your feedback!'
+                            : submittingFeedback[design.id]
+                            ? 'Submitting...'
+                            : 'Submit Feedback'}
+                        </button>
+                      </div>
+                    ) : (
+                      // Size selection for open designs
+                      <div className="grid grid-cols-5 gap-2">
+                        {SIZES.map(size => {
+                          const designSizes = sizesByDesign[design.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+                          return (
+                            <div key={size} className="flex flex-col items-center">
+                              <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={designSizes[size] === 0 ? '' : designSizes[size]}
+                                onChange={(e) => handleSizeChange(design.id, size, e.target.value)}
+                                placeholder="0"
+                                className="w-full text-center px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
+              );
+              })}
 
               {/* Single Submit Order Button at Bottom */}
-              <div className="flex justify-center sticky bottom-4">
-                <button
-                  onClick={() => {
-                    setShowOrderModal(true);
-                    setOrderSubmitted(false);
-                    setOrderModalName('');
-                    setOrderModalNotes('');
-                  }}
-                  disabled={totalItems === 0}
-                  className={`py-3 px-6 rounded-lg font-bold text-white transition-all flex items-center gap-2 shadow-lg ${
-                    totalItems === 0
-                      ? 'bg-indigo-300 cursor-not-allowed'
-                      : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-xl'
-                  }`}
-                >
-                  <ShoppingCart className="w-5 h-5" />
-                  Submit Order ({totalItems} items - ${totalPrice.toFixed(2)})
-                </button>
-              </div>
+              {totalItems > 0 && (
+                <div className="flex justify-center sticky bottom-4">
+                  <button
+                    onClick={() => {
+                      setShowOrderModal(true);
+                      setOrderSubmitted(false);
+                      setOrderModalName('');
+                      setOrderModalNotes('');
+                    }}
+                    className="py-3 px-6 rounded-lg font-bold text-white transition-all flex items-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-700 hover:shadow-xl"
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    Submit Order ({totalItems} items - ${totalPrice.toFixed(2)})
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1501,7 +1640,7 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Template ID</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Order Template ID</label>
                           <input
                             type="text"
                             value={configForm.emailjsTemplateId}
@@ -1654,6 +1793,29 @@ export default function App() {
                             <ArrowDown className="w-4 h-4" />
                           </button>
                         </div>
+                        
+                        {/* Status Dropdown */}
+                        <select
+                          value={design.status || 'open'}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleChangeDesignStatus(design.id, e.target.value);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`px-3 py-1.5 text-sm font-medium rounded-lg border-2 transition-colors cursor-pointer ${
+                            design.status === 'preview'
+                              ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100'
+                              : design.status === 'closed'
+                              ? 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                              : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                          }`}
+                          title="Change Design Status"
+                        >
+                          <option value="preview">Preview</option>
+                          <option value="open">Open</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                        
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1927,11 +2089,62 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
-                      </div>
-                    )}
+
+                    {/* Feedback Section */}
+                    {(() => {
+                      const designFeedback = feedbackList.filter(f => f.designId === design.id);
+                      if (designFeedback.length === 0) return null;
+                      
+                      return (
+                        <div className="mt-8">
+                          <label className="block text-sm font-medium text-gray-700 mb-2 px-6">
+                            Feedback ({designFeedback.length})
+                          </label>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm text-gray-600">
+                              <thead className="bg-gray-50 text-gray-700 border-b border-gray-200 font-semibold uppercase text-xs">
+                                <tr>
+                                  <th className="px-6 py-4 text-left w-32">Date</th>
+                                  <th className="px-6 py-4 text-left">Feedback</th>
+                                  <th className="px-6 py-4 text-right w-24">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {designFeedback.map(feedback => (
+                                  <tr key={feedback.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 w-32">
+                                      {new Date(feedback.timestamp).toLocaleDateString()} <br/>
+                                      {new Date(feedback.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-700">
+                                      <div className="whitespace-pre-wrap">{feedback.feedback}</div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                      <button
+                                        onClick={() => {
+                                          if (window.confirm('Delete this feedback?')) {
+                                            handleDeleteFeedback(feedback.id);
+                                          }
+                                        }}
+                                        className="text-red-400 hover:text-red-600 transition-colors inline-block"
+                                        title="Delete Feedback"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                );
-              })}
+                )}
+              </div>
+            );
+          })}
 
               <div className="flex justify-center gap-4 pt-2">
                 <button
