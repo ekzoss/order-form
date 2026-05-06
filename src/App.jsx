@@ -614,7 +614,7 @@ export default function App() {
         pricePerShirt: 7.50,
         frontImage: null,
         backImage: null,
-        status: 'open',
+        status: 'preview',
         order: maxOrder + 1,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -1896,7 +1896,7 @@ Submitted: ${new Date().toLocaleString()}`;
                             )}
                             <button
                               onClick={() => handleOpenImageEditor('frontImage', design.id)}
-                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
                               title="Modify Front Image"
                             >
                               <Edit2 className="w-3 h-3" />
@@ -1904,7 +1904,7 @@ Submitted: ${new Date().toLocaleString()}`;
                             {design.frontImage && (
                               <button
                                 onClick={() => setZoomedImage(design.frontImage)}
-                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
                                 title="Zoom Image"
                               >
                                 <ZoomIn className="w-3 h-3" />
@@ -1926,7 +1926,7 @@ Submitted: ${new Date().toLocaleString()}`;
                             )}
                             <button
                               onClick={() => handleOpenImageEditor('backImage', design.id)}
-                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
                               title="Modify Back Image"
                             >
                               <Edit2 className="w-3 h-3" />
@@ -1934,7 +1934,7 @@ Submitted: ${new Date().toLocaleString()}`;
                             {design.backImage && (
                               <button
                                 onClick={() => setZoomedImage(design.backImage)}
-                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
                                 title="Zoom Image"
                               >
                                 <ZoomIn className="w-3 h-3" />
@@ -2110,7 +2110,7 @@ Submitted: ${new Date().toLocaleString()}`;
                       
                       return (
                         <div className="mt-8">
-                          <label className="block text-sm font-medium text-gray-700 mb-2 px-6">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
                             Feedback ({designFeedback.length})
                           </label>
                           <div className="overflow-x-auto">
