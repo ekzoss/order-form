@@ -881,7 +881,7 @@ export default function App() {
       // Send email notification if EmailJS is configured
       if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId && globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
         try {
-          // Format order details for email
+          // Format order details for email body
           const orderSummary = orderDetails.map(order => {
             const sizesText = SIZES
               .filter(size => order.sizes[size] > 0)
@@ -890,14 +890,22 @@ export default function App() {
             return `${order.designName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
           }).join('\n');
           
+          // Build email body
+          const emailBody = `Name: ${orderModalName.trim()}
+Total Items: ${totalItems}
+Total Price: $${totalPrice.toFixed(2)}
+Notes: ${orderModalNotes.trim() || 'None'}
+
+Order Details:
+${orderSummary}
+
+Order Date: ${new Date().toLocaleString()}`;
+          
           const emailParams = {
             to_email: globalConfig.notificationEmail,
-            customer_name: orderModalName.trim(),
-            order_details: orderSummary,
-            total_items: totalItems,
-            total_price: totalPrice.toFixed(2),
-            notes: orderModalNotes.trim() || 'None',
-            order_date: new Date().toLocaleString()
+            email: globalConfig.notificationEmail,
+            subject: `New Order from ${orderModalName.trim()}`,
+            body: emailBody
           };
           
           await emailjs.send(
@@ -959,10 +967,15 @@ export default function App() {
       // Send notification email if EmailJS is configured
       if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId &&
           globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
+        const emailBody = `${feedback}
+
+Submitted: ${new Date().toLocaleString()}`;
+
         const emailParams = {
           to_email: globalConfig.notificationEmail,
-          subject: `New Feedback: ${design.name}`,
-          message: `New feedback received for design "${design.name}":\n\n${feedback}\n\nSubmitted: ${new Date().toLocaleString()}`
+          email: globalConfig.notificationEmail,
+          subject: `New Feedback for ${design.name}`,
+          body: emailBody
         };
 
         await emailjs.send(
