@@ -14,28 +14,41 @@ import {
   ZoomIn,
   Upload,
   Image as ImageIcon,
-  Printer
+  Printer,
+  Plus,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import ImageEditorModal from './ImageEditorModal';
 import BackgroundEditorModal from './BackgroundEditorModal';
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
-  onAuthStateChanged 
+import {
+  getAuth,
+  signInAnonymously,
+  signInWithCustomToken,
+  onAuthStateChanged
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  onSnapshot,
   query,
   doc,
   updateDoc,
   deleteDoc,
-  setDoc
+  setDoc,
+  getDoc,
+  writeBatch
 } from 'firebase/firestore';
+import {
+  migrateToDesignStructure,
+  checkMigrationStatus
+} from './migrationUtils';
+import emailjs from '@emailjs/browser';
 
 
 // --- Firebase Initialization ---
@@ -267,21 +280,38 @@ export default function App() {
   const [view, setView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // Store Configuration State (Images)
-  const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
-  const [configForm, setConfigForm] = useState({
+  // Global Configuration State (payment info, email settings - NOT design-specific)
+  const [globalConfig, setGlobalConfig] = useState({
     pageTitle: 'Austin Velocity 161 Diamond Team Shirt - Order form',
-    productHeader: 'Austin Velocity 161 Diamond',
-    productDescription: "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
     venmoUsername: 'ekzoss',
     cashappUsername: 'KandiZoss',
-    pricePerShirt: 7.50,
     notificationEmail: '',
     emailjsServiceId: '',
     emailjsTemplateId: '',
     emailjsPublicKey: ''
   });
+  const [configForm, setConfigForm] = useState({ ...globalConfig });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  // Design Management State
+  const [designs, setDesigns] = useState([]);
+  const [isLoadingDesigns, setIsLoadingDesigns] = useState(true);
+  const [selectedDesignId, setSelectedDesignId] = useState(null);
+  const [editingDesignId, setEditingDesignId] = useState(null);
+  const [designForm, setDesignForm] = useState(null);
+  const [isCreatingDesign, setIsCreatingDesign] = useState(false);
+  const [newDesignForm, setNewDesignForm] = useState({
+    name: '',
+    productHeader: '',
+    productDescription: '',
+    pricePerShirt: 7.50
+  });
+  const [collapsedDesigns, setCollapsedDesigns] = useState({});
+  const [deleteConfirmDesignId, setDeleteConfirmDesignId] = useState(null);
+  const [designEdits, setDesignEdits] = useState({}); // Track pending edits per design
+
+  // Legacy Store Configuration State (for backward compatibility during transition)
+  const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
   const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
   const [zoomedImage, setZoomedImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -289,7 +319,8 @@ export default function App() {
   // Image Editor Modal State
   const [imageEditorModal, setImageEditorModal] = useState({
     isOpen: false,
-    side: null
+    side: null,
+    designId: null
   });
   
   // Background Editor Modal State
@@ -319,14 +350,14 @@ export default function App() {
   });
 
   // Form State
-  const [name, setName] = useState('');
-  const [sizes, setSizes] = useState({ S: 0, M: 0, L: 0, XL: 0, XXL: 0 });
-  const [brandRequest, setBrandRequest] = useState('');
-  const [notes, setNotes] = useState('');
+  const [sizesByDesign, setSizesByDesign] = useState({}); // { designId: { S: 0, M: 0, ... } }
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [orderSuccess, setOrderSuccess] = useState(false);
-  const [lastOrder, setLastOrder] = useState(null); 
-  const [error, setError] = useState('');
+  
+  // Order Modal State
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [orderModalName, setOrderModalName] = useState('');
+  const [orderModalNotes, setOrderModalNotes] = useState('');
+  const [orderSubmitted, setOrderSubmitted] = useState(false);
 
   // Admin State
   const [passwordInput, setPasswordInput] = useState('');
@@ -335,6 +366,10 @@ export default function App() {
   const [editingOrderId, setEditingOrderId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Migration State
+  const [migrationStatus, setMigrationStatus] = useState({ checked: false, migrated: false });
+  const [isMigrating, setIsMigrating] = useState(false);
 
   // --- 1. Authentication ---
   useEffect(() => {
@@ -361,53 +396,89 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. Fetch Config, T-shirt Backgrounds & Orders ---
+  // --- 2. Check Migration Status & Fetch Data ---
   useEffect(() => {
     if (!user) return;
+
+    const checkAndFetchData = async () => {
+      // Check migration status
+      const status = await checkMigrationStatus(db, appId);
+      setMigrationStatus({ checked: true, migrated: status.migrated });
+    };
+
+    checkAndFetchData();
 
     // Fetch T-shirt Background Library
     const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
     const unsubscribeBgLibrary = onSnapshot(bgLibraryRef, (docSnap) => {
       if (docSnap.exists() && docSnap.data().library) {
         const customBackgrounds = docSnap.data().library;
-        // Filter out any custom backgrounds that have the same ID as defaults
         const filteredCustom = customBackgrounds.filter(
           bg => !DEFAULT_TSHIRT_BACKGROUNDS.find(def => def.id === bg.id)
         );
-        // Merge defaults with custom backgrounds (defaults first)
         setTshirtBackgrounds([...DEFAULT_TSHIRT_BACKGROUNDS, ...filteredCustom]);
       } else {
-        // No custom backgrounds in Firestore, use defaults only
         setTshirtBackgrounds(DEFAULT_TSHIRT_BACKGROUNDS);
       }
     });
 
-    // Fetch Store Config (Images & Text)
+    // Fetch Global Config (payment info, email settings only)
     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
     const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        // Store legacy data for backward compatibility
         setStoreConfig(data);
-        setConfigForm({
+        // Extract only global settings
+        const config = {
           pageTitle: data.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
-          productHeader: data.productHeader || 'Austin Velocity 161 Diamond',
-          productDescription: data.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
           venmoUsername: data.venmoUsername || 'ekzoss',
           cashappUsername: data.cashappUsername || 'KandiZoss',
-          pricePerShirt: data.pricePerShirt !== undefined ? data.pricePerShirt : 7.50,
           notificationEmail: data.notificationEmail || '',
           emailjsServiceId: data.emailjsServiceId || '',
           emailjsTemplateId: data.emailjsTemplateId || '',
           emailjsPublicKey: data.emailjsPublicKey || ''
-        });
+        };
+        setGlobalConfig(config);
+        setConfigForm(config);
+      }
+    });
+
+    // Fetch Designs
+    const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
+    const unsubscribeDesigns = onSnapshot(designsRef, (snapshot) => {
+      const fetchedDesigns = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Sort by order field (ascending), then by createdAt (descending) as fallback
+      fetchedDesigns.sort((a, b) => {
+        const aOrder = a.order !== undefined ? a.order : 999999;
+        const bOrder = b.order !== undefined ? b.order : 999999;
+        
+        if (aOrder !== bOrder) {
+          return aOrder - bOrder;
+        }
+        // If both have same order (or both undefined), sort by createdAt
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
+      
+      setDesigns(fetchedDesigns);
+      setIsLoadingDesigns(false);
+      
+      // Auto-select first design if none selected
+      if (!selectedDesignId && fetchedDesigns.length > 0) {
+        setSelectedDesignId(fetchedDesigns[0].id);
       }
     });
 
     return () => {
       unsubscribeBgLibrary();
       unsubscribeConfig();
+      unsubscribeDesigns();
     };
-  }, [user]);
+  }, [user, selectedDesignId]);
 
   useEffect(() => {
     if (!user || view !== 'adminDashboard') return;
@@ -431,20 +502,22 @@ export default function App() {
     return () => unsubscribeOrders();
   }, [user, view]);
 
+  // --- Get Selected Design ---
+  const selectedDesign = useMemo(() => {
+    return designs.find(d => d.id === selectedDesignId) || null;
+  }, [designs, selectedDesignId]);
+
   // --- Actions ---
 
   const normalizedSavedConfig = useMemo(() => ({
-    pageTitle: storeConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
-    productHeader: storeConfig.productHeader || 'Austin Velocity 161 Diamond',
-    productDescription: storeConfig.productDescription || "Team shirt with a small club logo on front and large design with team roster on the back. Click the images above to see more detail.\nThe shirts are Bella+Canvas cotton/polyester blend.  If you have a different brand you'd like to use, I should be able to iron these on to any shirt.",
-    venmoUsername: storeConfig.venmoUsername || 'ekzoss',
-    cashappUsername: storeConfig.cashappUsername || 'KandiZoss',
-    pricePerShirt: storeConfig.pricePerShirt !== undefined ? storeConfig.pricePerShirt : 7.50,
-    notificationEmail: storeConfig.notificationEmail || '',
-    emailjsServiceId: storeConfig.emailjsServiceId || '',
-    emailjsTemplateId: storeConfig.emailjsTemplateId || '',
-    emailjsPublicKey: storeConfig.emailjsPublicKey || ''
-  }), [storeConfig]);
+    pageTitle: globalConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
+    venmoUsername: globalConfig.venmoUsername || 'ekzoss',
+    cashappUsername: globalConfig.cashappUsername || 'KandiZoss',
+    notificationEmail: globalConfig.notificationEmail || '',
+    emailjsServiceId: globalConfig.emailjsServiceId || '',
+    emailjsTemplateId: globalConfig.emailjsTemplateId || '',
+    emailjsPublicKey: globalConfig.emailjsPublicKey || ''
+  }), [globalConfig]);
 
   const hasUnsavedConfigChanges = JSON.stringify(configForm) !== JSON.stringify(normalizedSavedConfig);
 
@@ -469,166 +542,247 @@ export default function App() {
     await saveConfig();
   };
 
-  const handleImageUpload = async (e, side) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // --- Design Management Actions ---
 
-    setUploadingImage(true);
+  const handleRunMigration = async () => {
+    if (!window.confirm('This will migrate your existing data to the new design structure. Continue?')) {
+      return;
+    }
+
+    setIsMigrating(true);
     try {
-      const compressedBase64 = await compressImage(file);
-      
-      // Store the design image temporarily
-      setDesignImage(prev => ({ ...prev, [side]: compressedBase64 }));
-      
-      // Always composite with t-shirt background
-      const finalImage = await compositeImageWithTshirt(
-        compressedBase64,
-        selectedTshirtBg[side],
-        designPosition[side],
-        designSize[side]
-      );
-      
-      // Update preview
-      setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
-      
-      // Update config document in Firestore
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-      await setDoc(configRef, { [side]: finalImage }, { merge: true });
+      const result = await migrateToDesignStructure(db, appId);
+      if (result.success) {
+        alert(`Migration successful!\n- Design created: ${result.designCreated}\n- Orders updated: ${result.ordersUpdated}`);
+        setMigrationStatus({ checked: true, migrated: true });
+      } else {
+        alert(`Migration failed: ${result.errors.join(', ')}`);
+      }
     } catch (err) {
-      console.error("Upload error", err);
-      alert("Failed to compress and upload image. Please try a smaller image.");
+      console.error('Migration error:', err);
+      alert('Migration failed: ' + err.message);
     } finally {
-      setUploadingImage(false);
+      setIsMigrating(false);
     }
   };
-  
-  // Handle t-shirt background selection change
-  const handleTshirtBgChange = async (side, bgUrl) => {
-    setSelectedTshirtBg(prev => ({ ...prev, [side]: bgUrl }));
-    
-    // If we have a design, update preview with new background
-    if (designImage[side]) {
-      setUploadingImage(true);
-      try {
-        const finalImage = await compositeImageWithTshirt(
-          designImage[side],
-          bgUrl,
-          designPosition[side],
-          designSize[side]
-        );
-        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
-        
-        // Update Firestore
-        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-        await setDoc(configRef, { [side]: finalImage }, { merge: true });
-      } catch (err) {
-        console.error("Color change error", err);
-      } finally {
-        setUploadingImage(false);
-      }
+
+  const handleCreateDesign = async () => {
+    try {
+      // Generate unique default name
+      const existingNumbers = designs
+        .map(d => {
+          const match = d.name.match(/^New Design (\d+)$/);
+          return match ? parseInt(match[1]) : 0;
+        })
+        .filter(n => n > 0);
+      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+      const defaultName = `New Design ${nextNumber}`;
+
+      const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
+      
+      // Calculate order value - place at end
+      const maxOrder = designs.length > 0
+        ? Math.max(...designs.map(d => d.order !== undefined ? d.order : 0))
+        : -1;
+      
+      const newDesign = {
+        name: defaultName,
+        productHeader: defaultName,
+        productDescription: '',
+        pricePerShirt: 7.50,
+        frontImage: null,
+        backImage: null,
+        status: 'open',
+        order: maxOrder + 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      const docRef = await addDoc(designsRef, newDesign);
+      
+      // Auto-expand the new design
+      setCollapsedDesigns(prev => ({
+        ...prev,
+        [docRef.id]: false
+      }));
+      
+      setSelectedDesignId(docRef.id);
+    } catch (err) {
+      console.error('Error creating design:', err);
+      alert('Failed to create design');
     }
   };
-  
-  // Handle design position change
-  const handleDesignPositionChange = async (side, axis, value) => {
-    const newPosition = { ...designPosition[side], [axis]: parseFloat(value) };
-    setDesignPosition(prev => ({ ...prev, [side]: newPosition }));
-    
-    // If we have a design, update preview
-    if (designImage[side]) {
-      setUploadingImage(true);
-      try {
-        const finalImage = await compositeImageWithTshirt(
-          designImage[side],
-          selectedTshirtBg[side],
-          newPosition,
-          designSize[side]
-        );
-        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
-        
-        // Update Firestore
-        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-        await setDoc(configRef, { [side]: finalImage }, { merge: true });
-      } catch (err) {
-        console.error("Position change error", err);
-      } finally {
-        setUploadingImage(false);
-      }
-    }
-  };
-  
-  // Handle design size change
-  const handleDesignSizeChange = async (side, value) => {
-    const newSize = parseFloat(value);
-    setDesignSize(prev => ({ ...prev, [side]: newSize }));
-    
-    // If we have a design, update preview
-    if (designImage[side]) {
-      setUploadingImage(true);
-      try {
-        const finalImage = await compositeImageWithTshirt(
-          designImage[side],
-          selectedTshirtBg[side],
-          designPosition[side],
-          newSize
-        );
-        setPreviewImage(prev => ({ ...prev, [side]: finalImage }));
-        
-        // Update Firestore
-        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-        await setDoc(configRef, { [side]: finalImage }, { merge: true });
-      } catch (err) {
-        console.error("Size change error", err);
-      } finally {
-        setUploadingImage(false);
-      }
-    }
-  };
-  
-  // Open image editor modal
-  const handleOpenImageEditor = (side) => {
-    setImageEditorModal({
-      isOpen: true,
-      side: side
+
+  const handleStartEditDesign = (design) => {
+    setEditingDesignId(design.id);
+    setDesignForm({
+      name: design.name,
+      productHeader: design.productHeader,
+      productDescription: design.productDescription,
+      pricePerShirt: design.pricePerShirt
     });
   };
-  
-  // Close image editor modal
+
+  const handleSaveDesignEdit = async (designId) => {
+    try {
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      await updateDoc(designRef, {
+        name: designForm.name,
+        productHeader: designForm.productHeader,
+        productDescription: designForm.productDescription,
+        pricePerShirt: designForm.pricePerShirt,
+        updatedAt: Date.now()
+      });
+      setEditingDesignId(null);
+      setDesignForm(null);
+      alert('Design updated successfully!');
+    } catch (err) {
+      console.error('Error updating design:', err);
+      alert('Failed to update design');
+    }
+  };
+
+  const handleDeleteDesign = async (designId) => {
+    const designOrders = orders.filter(o => o.designId === designId);
+    const confirmMessage = designOrders.length > 0
+      ? `⚠️ WARNING: This design has ${designOrders.length} order(s).\n\nDeleting this design will result in permanent loss of:\n- Design images and settings\n- All ${designOrders.length} associated order(s)\n- Order history and customer data\n\nThis action CANNOT be undone!\n\nAre you absolutely sure you want to delete "${designs.find(d => d.id === designId)?.name}"?`
+      : `Are you sure you want to delete "${designs.find(d => d.id === designId)?.name}"?`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId));
+      if (selectedDesignId === designId) {
+        setSelectedDesignId(designs.find(d => d.id !== designId)?.id || null);
+      }
+      setDeleteConfirmDesignId(null);
+      alert('Design deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting design:', err);
+      alert('Failed to delete design');
+    }
+  };
+
+  const toggleDesignCollapse = (designId) => {
+    setCollapsedDesigns(prev => ({
+      ...prev,
+      [designId]: prev[designId] === false ? true : false
+    }));
+  };
+
+  const handleMoveDesign = async (designId, direction) => {
+    try {
+      const currentIndex = designs.findIndex(d => d.id === designId);
+      if (currentIndex === -1) return;
+      
+      // Check bounds
+      if (direction === 'up' && currentIndex === 0) return;
+      if (direction === 'down' && currentIndex === designs.length - 1) return;
+      
+      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      const currentDesign = designs[currentIndex];
+      const targetDesign = designs[targetIndex];
+      
+      // If designs don't have order field, initialize them based on current index
+      const currentOrder = currentDesign.order !== undefined ? currentDesign.order : currentIndex;
+      const targetOrder = targetDesign.order !== undefined ? targetDesign.order : targetIndex;
+      
+      // Update both designs in Firestore - swap their order values
+      const batch = writeBatch(db);
+      
+      const currentRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', currentDesign.id);
+      batch.update(currentRef, { order: targetOrder, updatedAt: Date.now() });
+      
+      const targetRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', targetDesign.id);
+      batch.update(targetRef, { order: currentOrder, updatedAt: Date.now() });
+      
+      await batch.commit();
+    } catch (err) {
+      console.error('Error reordering designs:', err);
+      alert('Failed to reorder designs: ' + err.message);
+    }
+  };
+
+  const handleUpdateDesignField = (designId, field, value) => {
+    // Store edits locally, don't save to Firestore yet
+    setDesignEdits(prev => ({
+      ...prev,
+      [designId]: {
+        ...(prev[designId] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const saveAllDesignEdits = async () => {
+    const editedDesignIds = Object.keys(designEdits);
+    if (editedDesignIds.length === 0) return true;
+
+    try {
+      // Save all design edits to Firestore
+      const promises = editedDesignIds.map(designId => {
+        const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+        return updateDoc(designRef, {
+          ...designEdits[designId],
+          updatedAt: Date.now()
+        });
+      });
+      
+      await Promise.all(promises);
+      setDesignEdits({}); // Clear pending edits
+      return true;
+    } catch (err) {
+      console.error('Error saving design edits:', err);
+      alert('Failed to save design changes');
+      return false;
+    }
+  };
+
+
+  // --- Image Editor Actions ---
+
+  const handleOpenImageEditor = (side, designId) => {
+    setImageEditorModal({
+      isOpen: true,
+      side: side,
+      designId: designId
+    });
+  };
+
   const handleCloseImageEditor = () => {
     setImageEditorModal({
       isOpen: false,
-      side: null
+      side: null,
+      designId: null
     });
   };
   
-  // Save changes from image editor modal
   const handleSaveImageEditor = async (data) => {
     console.log('handleSaveImageEditor called with data:', data);
-    const { designImage: newDesignImage, selectedBackground, position, size, previewImage: newPreviewImage } = data;
+    const { previewImage: newPreviewImage } = data;
     const side = imageEditorModal.side;
+    const designId = imageEditorModal.designId;
     
     console.log('Side:', side);
+    console.log('Design ID:', designId);
     console.log('Preview image length:', newPreviewImage?.length);
     
-    if (!side) {
-      const error = new Error("No side specified");
+    if (!side || !designId) {
+      const error = new Error("No side or design specified");
       console.error('Error:', error);
       throw error;
     }
     
     try {
-      // Update all the state first
-      console.log('Updating state...');
-      setDesignImage(prev => ({ ...prev, [side]: newDesignImage }));
-      setSelectedTshirtBg(prev => ({ ...prev, [side]: selectedBackground }));
-      setDesignPosition(prev => ({ ...prev, [side]: position }));
-      setDesignSize(prev => ({ ...prev, [side]: size }));
-      setPreviewImage(prev => ({ ...prev, [side]: newPreviewImage }));
-      
-      // Update Firestore
+      // Update design document in Firestore
       console.log('Updating Firestore...');
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-      await setDoc(configRef, { [side]: newPreviewImage }, { merge: true });
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      await updateDoc(designRef, {
+        [side]: newPreviewImage,
+        updatedAt: Date.now()
+      });
       
       console.log('Firestore update successful');
       console.log('Save completed successfully');
@@ -637,6 +791,108 @@ export default function App() {
       console.error('Error details:', err.message, err.stack);
       throw err;
     }
+  };
+
+  // --- Multi-Design Order Submission ---
+  const handleSubmitMultiDesignOrder = async () => {
+    if (!orderModalName.trim()) {
+      alert('Please enter your name');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
+      const timestamp = Date.now();
+      
+      // Create one order per design that has items
+      const orderPromises = [];
+      const orderDetails = [];
+      
+      for (const [designId, designSizes] of Object.entries(sizesByDesign)) {
+        const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
+        
+        if (totalItemsForDesign > 0) {
+          const design = designs.find(d => d.id === designId);
+          if (!design) continue;
+          
+          const orderData = {
+            name: orderModalName.trim(),
+            sizes: designSizes,
+            notes: orderModalNotes.trim(),
+            designId: designId,
+            designName: design.name,
+            pricePerShirt: design.pricePerShirt,
+            totalItems: totalItemsForDesign,
+            totalPrice: totalItemsForDesign * design.pricePerShirt,
+            timestamp: timestamp,
+            createdAt: timestamp
+          };
+          
+          orderPromises.push(addDoc(ordersRef, orderData));
+          
+          // Store order details for email
+          orderDetails.push({
+            designName: design.name,
+            sizes: designSizes,
+            totalItems: totalItemsForDesign,
+            totalPrice: totalItemsForDesign * design.pricePerShirt
+          });
+        }
+      }
+      
+      await Promise.all(orderPromises);
+      
+      // Send email notification if EmailJS is configured
+      if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId && globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
+        try {
+          // Format order details for email
+          const orderSummary = orderDetails.map(order => {
+            const sizesText = SIZES
+              .filter(size => order.sizes[size] > 0)
+              .map(size => `${size}: ${order.sizes[size]}`)
+              .join(', ');
+            return `${order.designName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
+          }).join('\n');
+          
+          const emailParams = {
+            to_email: globalConfig.notificationEmail,
+            customer_name: orderModalName.trim(),
+            order_details: orderSummary,
+            total_items: totalItems,
+            total_price: totalPrice.toFixed(2),
+            notes: orderModalNotes.trim() || 'None',
+            order_date: new Date().toLocaleString()
+          };
+          
+          await emailjs.send(
+            globalConfig.emailjsServiceId,
+            globalConfig.emailjsTemplateId,
+            emailParams,
+            globalConfig.emailjsPublicKey
+          );
+        } catch (emailErr) {
+          console.error('Error sending email notification:', emailErr);
+          // Don't fail the order if email fails
+        }
+      }
+      
+      setOrderSubmitted(true);
+      setIsSubmitting(false);
+    } catch (err) {
+      console.error('Error submitting orders:', err);
+      alert('Failed to submit order: ' + err.message);
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseOrderModal = () => {
+    setShowOrderModal(false);
+    setOrderSubmitted(false);
+    setOrderModalName('');
+    setOrderModalNotes('');
+    // Clear the cart
+    setSizesByDesign({});
   };
   
   // Handle uploading a new t-shirt background - opens editor modal
@@ -703,95 +959,45 @@ export default function App() {
     }
   };
 
-  const handleSizeChange = (size, value) => {
+  const handleSizeChange = (designId, size, value) => {
+    const numValue = parseInt(value, 10) || 0;
+    setSizesByDesign(prev => ({
+      ...prev,
+      [designId]: {
+        ...(prev[designId] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 }),
+        [size]: Math.max(0, numValue)
+      }
+    }));
+  };
+
+  // Legacy function for old code
+  const handleSizeChangeLegacy = (size, value) => {
     const numValue = parseInt(value, 10) || 0;
     setSizes(prev => ({ ...prev, [size]: Math.max(0, numValue) }));
   };
 
+  // Calculate total items across all designs
   const totalItems = useMemo(() => {
-    return Object.values(sizes).reduce((acc, curr) => acc + curr, 0);
-  }, [sizes]);
+    let total = 0;
+    Object.values(sizesByDesign).forEach(designSizes => {
+      total += Object.values(designSizes).reduce((acc, curr) => acc + curr, 0);
+    });
+    return total;
+  }, [sizesByDesign]);
 
-  const pricePerShirt = storeConfig.pricePerShirt !== undefined ? storeConfig.pricePerShirt : 7.50;
-  const totalPrice = totalItems * pricePerShirt;
-
-  const handleSubmitOrder = async (e) => {
-    e.preventDefault();
-    setError('');
-
-    if (!user) {
-      setError("Please wait for the system to connect.");
-      return;
-    }
-
-    if (!name.trim()) {
-      setError("Please enter your name.");
-      return;
-    }
-
-    if (totalItems === 0) {
-      setError("Please select at least one t-shirt.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
-      await addDoc(ordersRef, {
-        name: name.trim(),
-        sizes,
-        brandRequest: brandRequest.trim(),
-        notes: notes.trim(),
-        isPaid: false, // Default to false when order is placed
-        totalItems,
-        timestamp: Date.now(),
-        userId: user.uid
-      });
-      
-      // NEW: Trigger Email Notification via EmailJS (No backend needed)
-      if (storeConfig.emailjsServiceId && storeConfig.emailjsTemplateId && storeConfig.emailjsPublicKey) {
-        try {
-          await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              service_id: storeConfig.emailjsServiceId,
-              template_id: storeConfig.emailjsTemplateId,
-              user_id: storeConfig.emailjsPublicKey,
-              template_params: {
-                to_email: storeConfig.notificationEmail,
-                customer_name: name.trim(),
-                total_items: totalItems,
-                total_price: totalPrice.toFixed(2),
-                notes: notes.trim() || 'None'
-              }
-            })
-          });
-        } catch (emailErr) {
-          console.error("Failed to send EmailJS notification:", emailErr);
-        }
+  // Calculate total price across all designs with their individual prices
+  const totalPrice = useMemo(() => {
+    let total = 0;
+    Object.entries(sizesByDesign).forEach(([designId, designSizes]) => {
+      const design = designs.find(d => d.id === designId);
+      if (design) {
+        const designTotal = Object.values(designSizes).reduce((acc, curr) => acc + curr, 0);
+        total += designTotal * design.pricePerShirt;
       }
-      
-      setLastOrder({
-        name: name.trim(),
-        totalItems,
-        totalPrice
-      });
-      
-      setOrderSuccess(true);
-      
-      // Reset form
-      setName('');
-      setSizes({ S: 0, M: 0, L: 0, XL: 0, XXL: 0 });
-      setBrandRequest('');
-      setNotes('');
-    } catch (err) {
-      console.error("Order error:", err);
-      setError("Failed to submit order. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    });
+    return total;
+  }, [sizesByDesign, designs]);
+
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
@@ -870,6 +1076,42 @@ export default function App() {
   };
 
   // --- Admin Calculations ---
+  
+  // Group orders by design
+  const ordersByDesign = useMemo(() => {
+    const grouped = {};
+    orders.forEach(order => {
+      const designId = order.designId || 'unknown';
+      if (!grouped[designId]) {
+        grouped[designId] = [];
+      }
+      grouped[designId].push(order);
+    });
+    return grouped;
+  }, [orders]);
+
+  // Calculate totals per design
+  const calculateDesignTotals = (designId) => {
+    const designOrders = ordersByDesign[designId] || [];
+    const totals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+    let revenue = 0;
+    
+    designOrders.forEach(order => {
+      SIZES.forEach(size => {
+        if (order.sizes && order.sizes[size]) {
+          totals[size] += order.sizes[size];
+        }
+      });
+      revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.pricePerShirt || 0);
+    });
+    
+    return {
+      sizes: totals,
+      revenue: revenue
+    };
+  };
+
+  // Legacy: Overall totals (for backward compatibility)
   const sizeTotals = useMemo(() => {
     const totals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
     orders.forEach(order => {
@@ -907,11 +1149,11 @@ export default function App() {
             >
               <X className="w-8 h-8" />
             </button>
-            <img 
-              src={zoomedImage} 
-              alt="Zoomed product" 
-              className="max-w-full max-h-full object-contain cursor-zoom-out shadow-2xl" 
-              onClick={(e) => e.stopPropagation()} // prevent closing when clicking image directly
+            <img
+              src={zoomedImage}
+              alt="Zoomed product"
+              className="max-w-full max-h-full object-contain cursor-zoom-out shadow-2xl"
+              onClick={() => setZoomedImage(null)}
             />
           </div>
         )}
@@ -921,10 +1163,11 @@ export default function App() {
           isOpen={imageEditorModal.isOpen}
           onClose={handleCloseImageEditor}
           side={imageEditorModal.side}
-          initialDesignImage={imageEditorModal.side ? designImage[imageEditorModal.side] : null}
-          initialBackground={imageEditorModal.side ? selectedTshirtBg[imageEditorModal.side] : DEFAULT_TSHIRT_BACKGROUNDS[0].url}
-          initialPosition={imageEditorModal.side ? designPosition[imageEditorModal.side] : { x: 50, y: 28 }}
-          initialSize={imageEditorModal.side ? designSize[imageEditorModal.side] : 45}
+          initialDesignImage={imageEditorModal.designId && imageEditorModal.side ?
+            designs.find(d => d.id === imageEditorModal.designId)?.[imageEditorModal.side] : null}
+          initialBackground={DEFAULT_TSHIRT_BACKGROUNDS[0].url}
+          initialPosition={{ x: 50, y: 28 }}
+          initialSize={45}
           tshirtBackgrounds={tshirtBackgrounds}
           onSave={handleSaveImageEditor}
           compositeImageWithTshirt={compositeImageWithTshirt}
@@ -943,203 +1186,174 @@ export default function App() {
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           
           {/* --- VIEW: STOREFRONT --- */}
-          {view === 'store' && (
-            <div className="grid md:grid-cols-2 gap-8 items-start">
-              
-              {/* Left Col: Product Info */}
-              <div className="space-y-6">
-                {/* Product Title & Description */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                  <h1 className="text-3xl font-extrabold text-gray-900 mb-4">{storeConfig.productHeader || 'Austin Velocity 161 Diamond'}</h1>
-                  
-                  {/* Product Description with HTML support */}
-                  <div
-                    className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
-                    dangerouslySetInnerHTML={{
-                      __html: storeConfig.productDescription || ""
-                    }}
-                  />
-                </div>
-
-                {/* Shirt Preview Section */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">Preview</h2>
-                  
-                  {/* Image Display Area */}
-                  <div className="aspect-[4/5] bg-gray-50 rounded-xl flex items-center justify-center relative overflow-hidden group border border-gray-200 shadow-inner">
-                    {storeConfig[`${activeTab}Image`] ? (
-                      <>
-                        <img
-                          src={storeConfig[`${activeTab}Image`]}
-                          alt={`T-shirt ${activeTab} view`}
-                          className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                          onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
-                        />
-                        <button
-                          onClick={() => setZoomedImage(storeConfig[`${activeTab}Image`])}
-                          className="absolute bottom-4 right-4 bg-white/90 p-2.5 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
-                          title="Zoom Image"
-                        >
-                          <ZoomIn className="w-5 h-5" />
-                        </button>
-                      </>
-                    ) : (
-                      <div className="text-gray-400 flex flex-col items-center">
-                        <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
-                        <span className="text-sm">No {activeTab} image uploaded yet</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Front / Back Toggles */}
-                  <div className="flex gap-2 mt-4 justify-center">
+          {view === 'store' && !isLoadingDesigns && designs.length === 0 && (
+            <div className="max-w-2xl mx-auto text-center py-16">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-8">
+                <AlertCircle className="w-16 h-16 text-yellow-600 mx-auto mb-4" />
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">No Designs Available</h2>
+                <p className="text-gray-600 mb-6">
+                  The store is being set up. Please check back soon or contact the administrator.
+                </p>
+                {migrationStatus.checked && !migrationStatus.migrated && (
+                  <div className="bg-white border border-yellow-300 rounded-lg p-4 mt-4">
+                    <p className="text-sm text-gray-700 mb-3">
+                      <strong>Admin:</strong> It looks like you need to run the migration to set up your first design.
+                    </p>
                     <button
-                      onClick={() => setActiveTab('front')}
-                      className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'front'
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
+                      onClick={() => setView('adminLogin')}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                     >
-                      Front View
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('back')}
-                      className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                        activeTab === 'back'
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      Back View
+                      Go to Admin Panel
                     </button>
                   </div>
-                </div>
+                )}
               </div>
-
-              {/* Right Col: Order Form */}
-              <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
-                {orderSuccess && lastOrder ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CheckCircle2 className="w-8 h-8" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Received!</h2>
-                    <p className="text-gray-600 mb-8">Thank you, {lastOrder.name}! Your order for {lastOrder.totalItems} shirt(s) has been logged.</p>
-                    
-                    <div className="bg-gray-50 rounded-xl p-6 mb-8 text-left border border-gray-100">
-                      <h3 className="font-semibold text-gray-900 mb-4 border-b pb-2">Complete Your Payment</h3>
-                      <p className="text-sm text-gray-600 mb-4">Your order total is <strong>${lastOrder.totalPrice.toFixed(2)}</strong>. Please pay using one of the methods below, or cash, etc... Include your name in the payment note.</p>
-                      
-                      <div className="space-y-3">
-                        <a 
-                          href={`https://venmo.com/${storeConfig.venmoUsername || 'ekzoss'}?txn=pay&audience=private&amount=${lastOrder.totalPrice}&note=T-Shirt%20Order%20-%20${encodeURIComponent(lastOrder.name)}`} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="flex items-center justify-center w-full py-3 px-4 bg-[#008CFF] hover:bg-[#0074D6] text-white font-medium rounded-lg transition-colors shadow-sm"
-                        >
-                          Pay with Venmo @{storeConfig.venmoUsername || 'ekzoss'}
-                        </a>
-                        <a 
-                          href={`https://cash.app/$${storeConfig.cashappUsername || 'KandiZoss'}/${lastOrder.totalPrice}`} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="flex items-center justify-center w-full py-3 px-4 bg-[#00D632] hover:bg-[#00B82A] text-white font-medium rounded-lg transition-colors shadow-sm"
-                        >
-                          Pay with Cash App ${storeConfig.cashappUsername || 'KandiZoss'}
-                        </a>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => { setOrderSuccess(false); setLastOrder(null); }}
-                      className="text-indigo-600 hover:text-indigo-800 font-medium text-sm transition-colors"
-                    >
-                      Place another order
-                    </button>
+            </div>
+          )}
+          
+          {view === 'store' && designs.length > 0 && (
+            <div className="space-y-8">
+              {designs.map(design => (
+                <div key={design.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  {/* Title and Price */}
+                  <div className="mb-4 flex items-center justify-between">
+                    <h1 className="text-2xl font-bold text-gray-900">{design.productHeader || design.name}</h1>
+                    <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.pricePerShirt.toFixed(2)} per shirt</p>
                   </div>
-                ) : (
-                  <form onSubmit={handleSubmitOrder} className="space-y-6">
-                    <h2 className="text-xl font-bold text-gray-900 border-b pb-4">Place Your Order</h2>
-                    
-                    {error && (
-                      <div className="bg-red-50 text-red-700 p-3 rounded-lg flex items-start gap-2 text-sm">
-                        <AlertCircle className="w-5 h-5 shrink-0" />
-                        <span>{error}</span>
-                      </div>
-                    )}
 
-                    {/* Name Input */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="name">
-                        Full Name *
-                      </label>
-                      <input
-                        id="name"
-                        type="text"
-                        required
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                        placeholder="John Doe"
+                  {/* Description */}
+                  {design.productDescription && (
+                    <div className="mb-6">
+                      <div
+                        className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
+                        dangerouslySetInnerHTML={{
+                          __html: design.productDescription
+                        }}
                       />
                     </div>
+                  )}
 
-                    {/* Sizes Grid */}
+                  {/* Front and Back Images Side by Side */}
+                  <div className="grid md:grid-cols-2 gap-4 mb-6">
+                    {/* Front Image */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-3">
-                        Select Quantities *
-                      </label>
-                      <div className="grid grid-cols-5 gap-2">
-                        {SIZES.map(size => (
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Front</h3>
+                      <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
+                        {design.frontImage ? (
+                          <>
+                            <img
+                              src={design.frontImage}
+                              alt="Front view"
+                              className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
+                              onClick={() => setZoomedImage(design.frontImage)}
+                            />
+                            <button
+                              onClick={() => setZoomedImage(design.frontImage)}
+                              className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
+                              title="Zoom Image"
+                            >
+                              <ZoomIn className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-gray-400 flex flex-col items-center">
+                            <ImageIcon className="w-8 h-8 mb-1 opacity-50" />
+                            <span className="text-xs">No image</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Back Image */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Back</h3>
+                      <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
+                        {design.backImage ? (
+                          <>
+                            <img
+                              src={design.backImage}
+                              alt="Back view"
+                              className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
+                              onClick={() => setZoomedImage(design.backImage)}
+                            />
+                            <button
+                              onClick={() => setZoomedImage(design.backImage)}
+                              className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
+                              title="Zoom Image"
+                            >
+                              <ZoomIn className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-gray-400 flex flex-col items-center">
+                            <ImageIcon className="w-8 h-8 mb-1 opacity-50" />
+                            <span className="text-xs">No image</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Size Selection for this design */}
+                  <div className="pt-6">
+                    <div className="grid grid-cols-5 gap-2">
+                      {SIZES.map(size => {
+                        const designSizes = sizesByDesign[design.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+                        return (
                           <div key={size} className="flex flex-col items-center">
                             <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
                             <input
                               type="number"
                               min="0"
-                              value={sizes[size] === 0 ? '' : sizes[size]}
-                              onChange={(e) => handleSizeChange(size, e.target.value)}
+                              value={designSizes[size] === 0 ? '' : designSizes[size]}
+                              onChange={(e) => handleSizeChange(design.id, size, e.target.value)}
                               placeholder="0"
                               className="w-full text-center px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                             />
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
+                  </div>
+                </div>
+              ))}
 
-                    {/* Optional Notes */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="notes">
-                        Notes <span className="text-gray-400 font-normal">(Optional)</span>
-                      </label>
-                      <textarea
-                        id="notes"
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none h-20"
-                        placeholder="Any special requests or notes..."
-                      />
-                    </div>
+              {/* Single Submit Order Button at Bottom */}
+              <div className="flex justify-center sticky bottom-4">
+                <button
+                  onClick={() => {
+                    setShowOrderModal(true);
+                    setOrderSubmitted(false);
+                    setOrderModalName('');
+                    setOrderModalNotes('');
+                  }}
+                  disabled={totalItems === 0}
+                  className={`py-3 px-6 rounded-lg font-bold text-white transition-all flex items-center gap-2 shadow-lg ${
+                    totalItems === 0
+                      ? 'bg-indigo-300 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-xl'
+                  }`}
+                >
+                  <ShoppingCart className="w-5 h-5" />
+                  Submit Order ({totalItems} items - ${totalPrice.toFixed(2)})
+                </button>
+              </div>
+            </div>
+          )}
 
-                    {/* Order Summary Line */}
-                    <div className="bg-gray-50 p-4 rounded-lg flex justify-between items-center border border-gray-100">
-                      <span className="text-gray-600 font-medium">Total Items: <span className="text-gray-900 font-bold">{totalItems}</span></span>
-                      <span className="text-gray-600 font-medium">Total: <span className="text-indigo-600 font-bold text-lg">${totalPrice.toFixed(2)}</span></span>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || totalItems === 0}
-                      className={`w-full py-3 px-4 rounded-lg font-bold text-white transition-all flex justify-center items-center gap-2 ${
-                        isSubmitting || totalItems === 0 
-                          ? 'bg-indigo-300 cursor-not-allowed' 
-                          : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg'
-                      }`}
-                    >
-                      {isSubmitting ? 'Submitting...' : 'Submit Order'}
-                    </button>
-                  </form>
-                )}
+          {/* Old single-design view - keeping for reference, will remove after multi-design ordering works */}
+          {view === 'store' && false && selectedDesign && (
+            <div className="grid md:grid-cols-2 gap-8 items-start">
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  <h1 className="text-3xl font-extrabold text-gray-900 mb-4">{selectedDesign.productHeader}</h1>
+                  <div
+                    className="text-gray-600 whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{
+                      __html: selectedDesign.productDescription || ""
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1195,52 +1409,52 @@ export default function App() {
                 </div>
               </div>
 
-              {/* --- Image Upload Section --- */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Store Settings</h2>
-                
-                {/* Product Title */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Title</label>
-                  <input
-                    type="text"
-                    value={configForm.productHeader}
-                    onChange={e => setConfigForm({...configForm, productHeader: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
+              {/* Migration Banner */}
+              {migrationStatus.checked && !migrationStatus.migrated && (
+                <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-6">
+                  <div className="flex items-start gap-4">
+                    <AlertCircle className="w-8 h-8 text-yellow-600 flex-shrink-0 mt-1" />
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-yellow-900 mb-2">Migration Required</h3>
+                      <p className="text-sm text-yellow-800 mb-4">
+                        Your data needs to be migrated to the new multi-design system. This will:
+                      </p>
+                      <ul className="text-sm text-yellow-800 mb-4 list-disc list-inside space-y-1">
+                        <li>Create a "Shirt 1" design from your current configuration</li>
+                        <li>Associate all existing orders with this design</li>
+                        <li>Enable you to create additional designs</li>
+                        <li>Preserve all your existing data</li>
+                      </ul>
+                      <button
+                        onClick={handleRunMigration}
+                        disabled={isMigrating}
+                        className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-300 text-white font-bold rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        {isMigrating ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            Running Migration...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-5 h-5" />
+                            Run Migration Now
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              )}
 
-                {/* Product Description */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Description <span className="text-gray-400 font-normal">(Accepts basic HTML tags)</span></label>
-                  <textarea
-                    value={configForm.productDescription}
-                    onChange={e => setConfigForm({...configForm, productDescription: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[150px]"
-                  />
-                </div>
+              {/* --- Global Settings Section --- */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Global Settings</h2>
+                <p className="text-sm text-gray-600 mb-4">These settings apply to all designs.</p>
                 
-                {uploadingImage && (
-                  <p className="text-sm text-indigo-600 font-bold mt-4 animate-pulse flex items-center gap-2">
-                    <Upload className="w-4 h-4 animate-bounce" /> Compressing and securely uploading image...
-                  </p>
-                )}
-                <br></br>
-                <div className="pt-4 border-t border-gray-100">
-                  <h3 className="text-sm font-bold text-gray-900 mb-3">Payment</h3>
-                  <form onSubmit={handleSaveConfig} className="space-y-4">
-                    <div className="grid md:grid-cols-3 gap-4">
-                        <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={configForm.pricePerShirt}
-                          onChange={e => setConfigForm({...configForm, pricePerShirt: parseFloat(e.target.value) || 0})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                        />
-                      </div>
+                <form onSubmit={handleSaveConfig} className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">Payment Information</h3>
+                  <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Venmo Username <span className="text-gray-400 font-normal">(without @)</span></label>
                         <input
@@ -1367,137 +1581,250 @@ export default function App() {
                       </label>
                     </div>
 
-                  </form>
-                </div>
-              </div>
-
-              {/* Orders & Shirt Designs Section Title */}
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Orders & Shirt Designs</h2>
-              </div>
-
-              {/* Combined Orders Section - Images, Totals, and Table */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Shirt 1</h3>
-                
-                {/* Shirt Design Previews - 50% smaller */}
-                <div className="grid md:grid-cols-2 gap-4 mb-6">
-                  {/* Front Image Preview */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Front Image</label>
-                    <div className="w-full max-w-[200px] mx-auto">
-                      <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                        {previewImage.frontImage || storeConfig.frontImage ? (
-                          <img src={previewImage.frontImage || storeConfig.frontImage} alt="front" className="w-full h-full object-contain" />
-                        ) : (
-                          <ImageIcon className="w-12 h-12 text-gray-400" />
-                        )}
-                        <button
-                          onClick={() => handleOpenImageEditor('frontImage')}
-                          className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
-                          title="Modify Front Image"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </button>
-                        {(previewImage.frontImage || storeConfig.frontImage) && (
-                          <button
-                            onClick={() => setZoomedImage(previewImage.frontImage || storeConfig.frontImage)}
-                            className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
-                            title="Zoom Image"
-                          >
-                            <ZoomIn className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Back Image Preview */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Back Image</label>
-                    <div className="w-full max-w-[200px] mx-auto">
-                      <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                        {previewImage.backImage || storeConfig.backImage ? (
-                          <img src={previewImage.backImage || storeConfig.backImage} alt="back" className="w-full h-full object-contain" />
-                        ) : (
-                          <ImageIcon className="w-12 h-12 text-gray-400" />
-                        )}
-                        <button
-                          onClick={() => handleOpenImageEditor('backImage')}
-                          className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
-                          title="Modify Back Image"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </button>
-                        {(previewImage.backImage || storeConfig.backImage) && (
-                          <button
-                            onClick={() => setZoomedImage(previewImage.backImage || storeConfig.backImage)}
-                            className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
-                            title="Zoom Image"
-                          >
-                            <ZoomIn className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Totals Summary Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
-                  {SIZES.map(size => (
-                    <div key={size} className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-                      <span className="text-gray-500 text-xs font-bold mb-1">SIZE {size}</span>
-                      <span className="text-2xl font-extrabold text-indigo-600">{sizeTotals[size]}</span>
-                    </div>
-                  ))}
-                  {/* Total Revenue */}
-                  <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex flex-col items-center justify-center">
-                    <span className="text-green-700 text-xs font-bold mb-1">REVENUE</span>
-                    <span className="text-2xl font-extrabold text-green-600">
-                      ${orders.reduce((acc, order) => acc + (order.totalItems * pricePerShirt), 0).toFixed(2)}
-                    </span>
-                  </div>
-                  {/* Print Labels Button */}
-                  <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
                     <button
-                      onClick={() => window.print()}
-                      className="text-white font-medium transition-colors flex items-center gap-2 text-xs hover:text-gray-200"
-                      title="Print Packaging Labels"
+                      type="submit"
+                      className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
                     >
-                      <Printer className="w-4 h-4" />
-                      <span className="hidden lg:inline">Print</span>
+                      Save Global Settings
                     </button>
-                  </div>
-                </div>
+                  </form>
+              </div>
 
-                {/* Orders Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600">
-                    <thead className="bg-gray-50 text-gray-700 border-b border-gray-200 font-semibold uppercase text-xs">
-                      <tr>
-                        <th className="px-6 py-4">Date</th>
-                        <th className="px-6 py-4">Name</th>
-                        <th className="px-4 py-4 text-center border-l border-gray-200 bg-gray-50/50">S</th>
-                        <th className="px-4 py-4 text-center bg-gray-50/50">M</th>
-                        <th className="px-4 py-4 text-center bg-gray-50/50">L</th>
-                        <th className="px-4 py-4 text-center bg-gray-50/50">XL</th>
-                        <th className="px-4 py-4 text-center border-r border-gray-200 bg-gray-50/50">XXL</th>
-                        <th className="px-6 py-4">Notes</th>
-                        <th className="px-6 py-4 text-right">Items</th>
-                        <th className="px-6 py-4 text-center border-l border-gray-200">Paid</th>
-                        <th className="px-6 py-4 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {orders.length === 0 ? (
-                        <tr>
-                          <td colSpan="12" className="px-6 py-12 text-center text-gray-500 text-base">
-                            No orders have been placed yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        orders.map((order) => {
+              {/* Orders & Shirt Designs Section */}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">Shirt Designs</h2>
+                <button
+                  onClick={handleCreateDesign}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create New Design
+                </button>
+              </div>
+
+              {/* Design Cards */}
+              {designs.map(design => {
+                const designOrders = ordersByDesign[design.id] || [];
+                const designTotals = calculateDesignTotals(design.id);
+                const isCollapsed = collapsedDesigns[design.id] !== false; // Default to collapsed
+                
+                return (
+                  <div key={design.id} className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+                    {/* Collapsible Header */}
+                    <div
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => toggleDesignCollapse(design.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isCollapsed ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronUp className="w-5 h-5 text-gray-400" />}
+                        <h3 className="text-lg font-bold text-gray-900">{design.name}</h3>
+                        <span className="text-sm text-gray-500">({designOrders.length} orders)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* Reorder buttons */}
+                        <div className="flex items-center gap-1 mr-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMoveDesign(design.id, 'up');
+                            }}
+                            disabled={designs.findIndex(d => d.id === design.id) === 0}
+                            className={`p-1.5 rounded transition-colors ${
+                              designs.findIndex(d => d.id === design.id) === 0
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'
+                            }`}
+                            title="Move Up"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMoveDesign(design.id, 'down');
+                            }}
+                            disabled={designs.findIndex(d => d.id === design.id) === designs.length - 1}
+                            className={`p-1.5 rounded transition-colors ${
+                              designs.findIndex(d => d.id === design.id) === designs.length - 1
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'
+                            }`}
+                            title="Move Down"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDesign(design.id);
+                          }}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Design"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expanded Content */}
+                    {!isCollapsed && (
+                      <div className="p-6 pt-0 border-t border-gray-100">
+                        {/* Editable Design Fields */}
+                        <div className="space-y-4 mb-6">
+                          <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Design Name</label>
+                              <input
+                                type="text"
+                                value={designEdits[design.id]?.name ?? design.name}
+                                onChange={e => {
+                                  handleUpdateDesignField(design.id, 'name', e.target.value);
+                                  handleUpdateDesignField(design.id, 'productHeader', e.target.value);
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={designEdits[design.id]?.pricePerShirt ?? design.pricePerShirt}
+                                onChange={e => handleUpdateDesignField(design.id, 'pricePerShirt', parseFloat(e.target.value) || 0)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <textarea
+                              value={designEdits[design.id]?.productDescription ?? design.productDescription}
+                              onChange={e => handleUpdateDesignField(design.id, 'productDescription', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[80px]"
+                            />
+                          </div>
+                        </div>
+                    
+                    {/* Shirt Design Previews - 50% smaller */}
+                    <div className="grid md:grid-cols-2 gap-4 mb-6">
+                      {/* Front Image Preview */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Front Image</label>
+                        <div className="w-full max-w-[200px] mx-auto">
+                          <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
+                            {design.frontImage ? (
+                              <img src={design.frontImage} alt="front" className="w-full h-full object-contain" />
+                            ) : (
+                              <ImageIcon className="w-12 h-12 text-gray-400" />
+                            )}
+                            <button
+                              onClick={() => handleOpenImageEditor('frontImage', design.id)}
+                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                              title="Modify Front Image"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            {design.frontImage && (
+                              <button
+                                onClick={() => setZoomedImage(design.frontImage)}
+                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                title="Zoom Image"
+                              >
+                                <ZoomIn className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Back Image Preview */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Back Image</label>
+                        <div className="w-full max-w-[200px] mx-auto">
+                          <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
+                            {design.backImage ? (
+                              <img src={design.backImage} alt="back" className="w-full h-full object-contain" />
+                            ) : (
+                              <ImageIcon className="w-12 h-12 text-gray-400" />
+                            )}
+                            <button
+                              onClick={() => handleOpenImageEditor('backImage', design.id)}
+                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-0 group-hover:opacity-100"
+                              title="Modify Back Image"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            {design.backImage && (
+                              <button
+                                onClick={() => setZoomedImage(design.backImage)}
+                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                title="Zoom Image"
+                              >
+                                <ZoomIn className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Totals Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
+                      {SIZES.map(size => (
+                        <div key={size} className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+                          <span className="text-gray-500 text-xs font-bold mb-1">SIZE {size}</span>
+                          <span className="text-2xl font-extrabold text-indigo-600">{designTotals.sizes[size]}</span>
+                        </div>
+                      ))}
+                      {/* Total Revenue */}
+                      <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex flex-col items-center justify-center">
+                        <span className="text-green-700 text-xs font-bold mb-1">REVENUE</span>
+                        <span className="text-2xl font-extrabold text-green-600">
+                          ${designTotals.revenue.toFixed(2)}
+                        </span>
+                      </div>
+                      {/* Print Labels Button */}
+                      <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
+                        <button
+                          onClick={() => window.print()}
+                          className="text-white font-medium transition-colors flex items-center gap-2 text-xs hover:text-gray-200"
+                          title="Print Packaging Labels"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span className="hidden lg:inline">Print</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Orders Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm text-gray-600">
+                        <thead className="bg-gray-50 text-gray-700 border-b border-gray-200 font-semibold uppercase text-xs">
+                          <tr>
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4">Name</th>
+                            <th className="px-4 py-4 text-center border-l border-gray-200 bg-gray-50/50">S</th>
+                            <th className="px-4 py-4 text-center bg-gray-50/50">M</th>
+                            <th className="px-4 py-4 text-center bg-gray-50/50">L</th>
+                            <th className="px-4 py-4 text-center bg-gray-50/50">XL</th>
+                            <th className="px-4 py-4 text-center border-r border-gray-200 bg-gray-50/50">XXL</th>
+                            <th className="px-6 py-4">Notes</th>
+                            <th className="px-6 py-4 text-right">Items</th>
+                            <th className="px-6 py-4 text-center border-l border-gray-200">Paid</th>
+                            <th className="px-6 py-4 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {designOrders.length === 0 ? (
+                            <tr>
+                              <td colSpan="12" className="px-6 py-12 text-center text-gray-500 text-base">
+                                No orders have been placed for this design yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            designOrders.map((order) => {
                           const isEditing = editingOrderId === order.id;
                           return (
                           <tr 
@@ -1595,16 +1922,22 @@ export default function App() {
                               )}
                             </td>
                           </tr>
-                        )})
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                            )})
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               <div className="flex justify-center gap-4 pt-2">
                 <button
                   onClick={async () => {
+                    // Discard all pending design edits
+                    setDesignEdits({});
                     setView('store');
                     setOrderSuccess(false);
                   }}
@@ -1615,10 +1948,15 @@ export default function App() {
                 </button>
                 <button
                   onClick={async () => {
+                    // Save global config if changed
                     if (hasUnsavedConfigChanges) {
                       const saved = await saveConfig();
                       if (!saved) return;
                     }
+                    // Save all design edits
+                    const designsSaved = await saveAllDesignEdits();
+                    if (!designsSaved) return;
+                    
                     setView('store');
                     setOrderSuccess(false);
                   }}
@@ -1691,6 +2029,189 @@ export default function App() {
           ))
         )}
       </div>
+
+      {/* Order Submission Modal */}
+      {showOrderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {orderSubmitted ? 'Order Confirmed!' : 'Review Your Order'}
+                </h2>
+                <button
+                  onClick={handleCloseOrderModal}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Order Summary */}
+              <div className="mb-6 space-y-3">
+                <h3 className="font-semibold text-gray-700 mb-3">Order Summary:</h3>
+                {Object.entries(sizesByDesign).map(([designId, designSizes]) => {
+                  const design = designs.find(d => d.id === designId);
+                  if (!design) return null;
+                  
+                  const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
+                  if (totalItemsForDesign === 0) return null;
+                  
+                  const sizesText = SIZES
+                    .filter(size => designSizes[size] > 0)
+                    .map(size => `${size}: ${designSizes[size]}`)
+                    .join(', ');
+                  
+                  return (
+                    <div key={designId} className="flex justify-between items-start p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{design.name}</p>
+                        <p className="text-sm text-gray-600">{sizesText}</p>
+                      </div>
+                      <div className="text-right ml-4">
+                        <p className="font-semibold text-gray-900">${(totalItemsForDesign * design.pricePerShirt).toFixed(2)}</p>
+                        <p className="text-xs text-gray-500">{totalItemsForDesign} × ${design.pricePerShirt.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {/* Total */}
+                <div className="flex justify-between items-center pt-3 border-t-2 border-gray-200">
+                  <p className="text-lg font-bold text-gray-900">Total:</p>
+                  <p className="text-xl font-bold text-indigo-600">${totalPrice.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {!orderSubmitted ? (
+                <>
+                  {/* Name Field */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={orderModalName}
+                      onChange={(e) => setOrderModalName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      placeholder="Enter your name"
+                      required
+                    />
+                  </div>
+
+                  {/* Notes Field */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Notes <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <textarea
+                      value={orderModalNotes}
+                      onChange={(e) => setOrderModalNotes(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[80px]"
+                      placeholder="Any special requests or notes..."
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    onClick={handleSubmitMultiDesignOrder}
+                    disabled={isSubmitting || !orderModalName.trim()}
+                    className={`w-full py-3 rounded-lg font-bold text-white transition-all flex items-center justify-center gap-2 ${
+                      isSubmitting || !orderModalName.trim()
+                        ? 'bg-indigo-300 cursor-not-allowed'
+                        : 'bg-indigo-600 hover:bg-indigo-700'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-5 h-5" />
+                        Submit Order
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Order Confirmed - Show read-only info */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700">
+                      {orderModalName}
+                    </div>
+                  </div>
+
+                  {orderModalNotes && (
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                      <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 whitespace-pre-wrap">
+                        {orderModalNotes}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment Instructions */}
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-green-900 mb-2">Thank you for your order!</p>
+                        <p className="text-sm text-green-800 mb-3">Please submit payment via:</p>
+                        <div className="space-y-2 text-sm">
+                          {globalConfig.venmoUsername && (
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-green-900">Venmo:</span>
+                              <a
+                                href={`https://venmo.com/${globalConfig.venmoUsername}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-green-800 hover:text-green-600 underline font-medium"
+                              >
+                                @{globalConfig.venmoUsername}
+                              </a>
+                            </div>
+                          )}
+                          {globalConfig.cashappUsername && (
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-green-900">Cash App:</span>
+                              <a
+                                href={`https://cash.app/$${globalConfig.cashappUsername}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-green-800 hover:text-green-600 underline font-medium"
+                              >
+                                ${globalConfig.cashappUsername}
+                              </a>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-green-900">Cash:</span>
+                            <span className="text-green-800">In person</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Close Button */}
+                  <button
+                    onClick={handleCloseOrderModal}
+                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold transition-colors"
+                  >
+                    Close
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
