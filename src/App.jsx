@@ -44,10 +44,6 @@ import {
   getDoc,
   writeBatch
 } from 'firebase/firestore';
-import {
-  migrateToDesignStructure,
-  checkMigrationStatus
-} from './migrationUtils';
 import emailjs from '@emailjs/browser';
 
 
@@ -283,6 +279,7 @@ export default function App() {
   // Global Configuration State (payment info, email settings - NOT design-specific)
   const [globalConfig, setGlobalConfig] = useState({
     pageTitle: 'Austin Velocity 161 Diamond Team Shirt - Order form',
+    pageDescription: '',
     venmoUsername: 'ekzoss',
     cashappUsername: 'KandiZoss',
     notificationEmail: '',
@@ -373,10 +370,6 @@ export default function App() {
   const [editFormData, setEditFormData] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  // Migration State
-  const [migrationStatus, setMigrationStatus] = useState({ checked: false, migrated: false });
-  const [isMigrating, setIsMigrating] = useState(false);
-
   // --- 1. Authentication ---
   useEffect(() => {
     const initAuth = async () => {
@@ -406,13 +399,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const checkAndFetchData = async () => {
-      // Check migration status
-      const status = await checkMigrationStatus(db, appId);
-      setMigrationStatus({ checked: true, migrated: status.migrated });
-    };
-
-    checkAndFetchData();
 
     // Fetch T-shirt Background Library
     const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
@@ -438,6 +424,7 @@ export default function App() {
         // Extract only global settings
         const config = {
           pageTitle: data.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
+          pageDescription: data.pageDescription || '',
           venmoUsername: data.venmoUsername || 'ekzoss',
           cashappUsername: data.cashappUsername || 'KandiZoss',
           notificationEmail: data.notificationEmail || '',
@@ -533,6 +520,7 @@ export default function App() {
 
   const normalizedSavedConfig = useMemo(() => ({
     pageTitle: globalConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
+    pageDescription: globalConfig.pageDescription || '',
     venmoUsername: globalConfig.venmoUsername || 'ekzoss',
     cashappUsername: globalConfig.cashappUsername || 'KandiZoss',
     notificationEmail: globalConfig.notificationEmail || '',
@@ -548,7 +536,6 @@ export default function App() {
     try {
       const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
       await setDoc(configRef, configForm, { merge: true });
-      alert("Store settings updated successfully!");
       return true;
     } catch (err) {
       console.error("Save config error", err);
@@ -566,27 +553,6 @@ export default function App() {
 
   // --- Design Management Actions ---
 
-  const handleRunMigration = async () => {
-    if (!window.confirm('This will migrate your existing data to the new design structure. Continue?')) {
-      return;
-    }
-
-    setIsMigrating(true);
-    try {
-      const result = await migrateToDesignStructure(db, appId);
-      if (result.success) {
-        alert(`Migration successful!\n- Design created: ${result.designCreated}\n- Orders updated: ${result.ordersUpdated}`);
-        setMigrationStatus({ checked: true, migrated: true });
-      } else {
-        alert(`Migration failed: ${result.errors.join(', ')}`);
-      }
-    } catch (err) {
-      console.error('Migration error:', err);
-      alert('Migration failed: ' + err.message);
-    } finally {
-      setIsMigrating(false);
-    }
-  };
 
   const handleCreateDesign = async () => {
     try {
@@ -657,7 +623,6 @@ export default function App() {
       });
       setEditingDesignId(null);
       setDesignForm(null);
-      alert('Design updated successfully!');
     } catch (err) {
       console.error('Error updating design:', err);
       alert('Failed to update design');
@@ -680,7 +645,6 @@ export default function App() {
         setSelectedDesignId(designs.find(d => d.id !== designId)?.id || null);
       }
       setDeleteConfirmDesignId(null);
-      alert('Design deleted successfully!');
     } catch (err) {
       console.error('Error deleting design:', err);
       alert('Failed to delete design');
@@ -1306,25 +1270,29 @@ Submitted: ${new Date().toLocaleString()}`;
                 <p className="text-gray-600 mb-6">
                   The store is being set up. Please check back soon or contact the administrator.
                 </p>
-                {migrationStatus.checked && !migrationStatus.migrated && (
-                  <div className="bg-white border border-yellow-300 rounded-lg p-4 mt-4">
-                    <p className="text-sm text-gray-700 mb-3">
-                      <strong>Admin:</strong> It looks like you need to run the migration to set up your first design.
-                    </p>
-                    <button
-                      onClick={() => setView('adminLogin')}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                    >
-                      Go to Admin Panel
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}
           
           {view === 'store' && designs.length > 0 && (
             <div className="space-y-8">
+              {/* Page Title and Description */}
+              {(globalConfig.pageTitle || globalConfig.pageDescription) && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  {globalConfig.pageTitle && (
+                    <h1 className="text-3xl font-bold text-gray-900 mb-3">{globalConfig.pageTitle}</h1>
+                  )}
+                  {globalConfig.pageDescription && (
+                    <div
+                      className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
+                      dangerouslySetInnerHTML={{
+                        __html: globalConfig.pageDescription
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+
               {designs.filter(design => design.status !== 'closed').map(design => {
                 const isPreview = design.status === 'preview';
                 return (
@@ -1561,43 +1529,6 @@ Submitted: ${new Date().toLocaleString()}`;
                 </div>
               </div>
 
-              {/* Migration Banner */}
-              {migrationStatus.checked && !migrationStatus.migrated && (
-                <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-6">
-                  <div className="flex items-start gap-4">
-                    <AlertCircle className="w-8 h-8 text-yellow-600 flex-shrink-0 mt-1" />
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-yellow-900 mb-2">Migration Required</h3>
-                      <p className="text-sm text-yellow-800 mb-4">
-                        Your data needs to be migrated to the new multi-design system. This will:
-                      </p>
-                      <ul className="text-sm text-yellow-800 mb-4 list-disc list-inside space-y-1">
-                        <li>Create a "Shirt 1" design from your current configuration</li>
-                        <li>Associate all existing orders with this design</li>
-                        <li>Enable you to create additional designs</li>
-                        <li>Preserve all your existing data</li>
-                      </ul>
-                      <button
-                        onClick={handleRunMigration}
-                        disabled={isMigrating}
-                        className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-300 text-white font-bold rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        {isMigrating ? (
-                          <>
-                            <RefreshCw className="w-5 h-5 animate-spin" />
-                            Running Migration...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-5 h-5" />
-                            Run Migration Now
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* --- Global Settings Section --- */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1605,6 +1536,33 @@ Submitted: ${new Date().toLocaleString()}`;
                 <p className="text-sm text-gray-600 mb-4">These settings apply to all designs.</p>
                 
                 <form onSubmit={handleSaveConfig} className="space-y-4">
+                  {/* Page Title and Description */}
+                  <div className="pb-4 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-900 mb-3">Page Information</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
+                        <input
+                          type="text"
+                          value={configForm.pageTitle}
+                          onChange={e => setConfigForm({...configForm, pageTitle: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                          placeholder="Enter page title"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Page Description</label>
+                        <textarea
+                          value={configForm.pageDescription}
+                          onChange={e => setConfigForm({...configForm, pageDescription: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                          placeholder="Enter page description (optional)"
+                          rows="3"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <h3 className="text-sm font-bold text-gray-900 mb-3">Payment Information</h3>
                   <div className="grid md:grid-cols-2 gap-4">
                       <div>
