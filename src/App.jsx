@@ -370,7 +370,21 @@ export default function App() {
   const [editFormData, setEditFormData] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  // --- 1. Authentication ---
+  // --- 1. Update Browser Title ---
+  useEffect(() => {
+    if (globalConfig.pageTitle) {
+      document.title = globalConfig.pageTitle;
+    }
+  }, [globalConfig.pageTitle]);
+
+  // --- 2. Scroll to top when returning to store view ---
+  useEffect(() => {
+    if (view === 'store') {
+      window.scrollTo(0, 0);
+    }
+  }, [view]);
+
+  // --- 3. Authentication ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -1509,7 +1523,10 @@ Submitted: ${new Date().toLocaleString()}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setView('store')}
+                  onClick={() => {
+                    setView('store');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="w-full py-2 text-gray-500 hover:text-gray-800 text-sm flex items-center justify-center gap-1 mt-2"
                 >
                   <ArrowLeft className="w-4 h-4" /> Back to Store
