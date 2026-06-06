@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { CheckCircle2, RefreshCw, X } from 'lucide-react';
 import { SIZES } from './constants';
+import SquarePaymentForm from './SquarePaymentForm';
+import { calculateProcessingFee } from './feeUtils';
+import emailjs from '@emailjs/browser';
 
 const OrderSubmissionModal = ({
   showOrderModal,
@@ -17,7 +20,94 @@ const OrderSubmissionModal = ({
   isSubmitting,
   globalConfig
 }) => {
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+
+  // Calculate processing fee (must be before early return)
+  const processingFee = useMemo(() => {
+    if (!globalConfig?.processingFee) return 0;
+    return calculateProcessingFee(globalConfig.processingFee, totalPrice);
+  }, [globalConfig?.processingFee, totalPrice]);
+
+  // Calculate total with processing fee
+  const totalWithFee = totalPrice + processingFee;
+
   if (!showOrderModal) return null;
+
+  const handlePaymentSuccess = async (paymentData) => {
+    console.log('Payment successful:', paymentData);
+    setIsProcessingOrder(true);
+    // Submit the order after successful payment
+    await handleSubmitMultiDesignOrder();
+    setPaymentCompleted(true);
+    setIsProcessingOrder(false);
+  };
+
+  const handlePaymentError = async (error) => {
+    console.error('Payment error:', error);
+    
+    // Send notification email about payment failure
+    const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig?.emailjsServiceId;
+    const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig?.emailjsTemplateId;
+    const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig?.emailjsPublicKey;
+    
+    if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig?.notificationEmail) {
+      try {
+        // Build order details for email
+        const orderDetails = Object.entries(sizesByDesign)
+          .flatMap(([designId, designSizes]) => {
+            const design = designs.find(d => d.id === designId);
+            if (!design) return [];
+            
+            return SIZES
+              .filter(size => designSizes[size] > 0)
+              .flatMap(size => {
+                return Array.from({ length: designSizes[size] }, () =>
+                  `${design.name} - ${size}: $${design.pricePerShirt.toFixed(2)}`
+                );
+              });
+          })
+          .join('\n');
+        
+        const processingFee = calculateProcessingFee(globalConfig.processingFee, totalPrice);
+        const totalWithFee = totalPrice + processingFee;
+        
+        const emailParams = {
+          to_email: globalConfig.notificationEmail,
+          subject: `⚠️ Payment Failed - ${orderModalName}`,
+          message: `PAYMENT FAILURE ALERT
+
+Customer Name: ${orderModalName}
+Amount Attempted: $${totalWithFee.toFixed(2)}
+Error: ${error}
+
+Order Details:
+${orderDetails}
+
+Subtotal: $${totalPrice.toFixed(2)}
+Processing Fee: $${processingFee.toFixed(2)}
+Total: $${totalWithFee.toFixed(2)}
+
+Notes: ${orderModalNotes || 'None'}
+
+Time: ${new Date().toLocaleString()}
+
+Please follow up with the customer.`
+        };
+        
+        await emailjs.send(
+          emailjsServiceId,
+          emailjsTemplateId,
+          emailParams,
+          emailjsPublicKey
+        );
+        
+        console.log('Payment failure notification sent');
+      } catch (emailError) {
+        console.error('Failed to send payment failure notification:', emailError);
+      }
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -25,7 +115,7 @@ const OrderSubmissionModal = ({
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-gray-900">
-              {orderSubmitted ? 'Order Confirmed!' : 'Review Your Order'}
+              {orderSubmitted ? 'Order Confirmed!' : 'Review and Pay'}
             </h2>
             <button
               onClick={handleCloseOrderModal}
@@ -35,44 +125,53 @@ const OrderSubmissionModal = ({
             </button>
           </div>
 
-          <div className="mb-6 space-y-3">
+          <div className="mb-6 space-y-2">
             <h3 className="font-semibold text-gray-700 mb-3">Order Summary:</h3>
-            {Object.entries(sizesByDesign).map(([designId, designSizes]) => {
+            {Object.entries(sizesByDesign).flatMap(([designId, designSizes]) => {
               const design = designs.find(d => d.id === designId);
-              if (!design) return null;
+              if (!design) return [];
 
-              const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
-              if (totalItemsForDesign === 0) return null;
-
-              const sizesText = SIZES
+              // Create a line item for each size with quantity > 0
+              return SIZES
                 .filter(size => designSizes[size] > 0)
-                .map(size => `${size}: ${designSizes[size]}`)
-                .join(', ');
+                .flatMap(size => {
+                  // Create multiple line items if quantity > 1
+                  return Array.from({ length: designSizes[size] }, (_, index) => ({
+                    key: `${designId}-${size}-${index}`,
+                    designName: design.name,
+                    size: size,
+                    price: design.pricePerShirt
+                  }));
+                });
+            }).map(item => (
+              <div key={item.key} className="flex justify-between items-center py-1">
+                <p className="text-sm text-gray-900">{item.designName} - {item.size}</p>
+                <p className="text-sm text-gray-900">${item.price.toFixed(2)}</p>
+              </div>
+            ))}
 
-              return (
-                <div key={designId} className="flex justify-between items-start p-3 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{design.name}</p>
-                    <p className="text-sm text-gray-600">{sizesText}</p>
-                  </div>
-                  <div className="text-right ml-4">
-                    <p className="font-semibold text-gray-900">${(totalItemsForDesign * design.pricePerShirt).toFixed(2)}</p>
-                    <p className="text-xs text-gray-500">{totalItemsForDesign} × ${design.pricePerShirt.toFixed(2)}</p>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+              <p className="text-base font-semibold text-gray-700">Subtotal:</p>
+              <p className="text-base font-semibold text-gray-900">${totalPrice.toFixed(2)}</p>
+            </div>
+
+            {processingFee > 0 && (
+              <div className="flex justify-between items-center pt-1">
+                <p className="text-base font-semibold text-gray-700">Processing Fee:</p>
+                <p className="text-base font-semibold text-gray-900">${processingFee.toFixed(2)}</p>
+              </div>
+            )}
 
             <div className="flex justify-between items-center pt-3 border-t-2 border-gray-200">
-              <p className="text-lg font-bold text-gray-900">Total:</p>
-              <p className="text-xl font-bold text-indigo-600">${totalPrice.toFixed(2)}</p>
+              <p className="text-base font-bold text-gray-900">Total:</p>
+              <p className="text-xl font-bold text-indigo-600">${totalWithFee.toFixed(2)}</p>
             </div>
           </div>
 
-          {!orderSubmitted ? (
+          {!orderSubmitted && !isProcessingOrder ? (
             <>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-base font-medium text-gray-700 mb-1">
                   Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -86,7 +185,7 @@ const OrderSubmissionModal = ({
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-base font-medium text-gray-700 mb-1">
                   Notes <span className="text-gray-400">(optional)</span>
                 </label>
                 <textarea
@@ -97,91 +196,31 @@ const OrderSubmissionModal = ({
                 />
               </div>
 
-              <button
-                onClick={handleSubmitMultiDesignOrder}
-                disabled={isSubmitting || !orderModalName.trim()}
-                className={`w-full py-3 rounded-lg font-bold text-white transition-all flex items-center justify-center gap-2 ${
-                  isSubmitting || !orderModalName.trim()
-                    ? 'bg-indigo-300 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700'
-                }`}
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    Submit Order
-                  </>
-                )}
-              </button>
+              <SquarePaymentForm
+                amount={totalWithFee}
+                onPaymentSuccess={handlePaymentSuccess}
+                onPaymentError={handlePaymentError}
+                customerName={orderModalName}
+                orderId={`ORDER-${Date.now()}`}
+              />
             </>
           ) : (
             <>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700">
-                  {orderModalName}
-                </div>
-              </div>
-
-              {orderModalNotes && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                  <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 whitespace-pre-wrap">
-                    {orderModalNotes}
-                  </div>
-                </div>
-              )}
-
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-green-900 mb-2">Thank you for your order!</p>
-                    <p className="text-sm text-green-800 mb-3">Please submit payment via:</p>
-                    <div className="space-y-2 text-sm">
-                      {globalConfig.venmoUsername && (
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-green-900">Venmo:</span>
-                          <a
-                            href={`https://venmo.com/${globalConfig.venmoUsername}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-green-800 hover:text-green-600 underline font-medium"
-                          >
-                            @{globalConfig.venmoUsername}
-                          </a>
-                        </div>
-                      )}
-                      {globalConfig.cashappUsername && (
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-green-900">Cash App:</span>
-                          <a
-                            href={`https://cash.app/$${globalConfig.cashappUsername}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-green-800 hover:text-green-600 underline font-medium"
-                          >
-                            ${globalConfig.cashappUsername}
-                          </a>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-green-900">Cash:</span>
-                        <span className="text-green-800">In person</span>
-                      </div>
-                    </div>
+                    <p className="font-semibold text-green-900 mb-2">Payment Successful!</p>
+                    <p className="text-sm text-green-800">
+                      Your payment of ${totalWithFee.toFixed(2)} has been processed and your order has been submitted.
+                    </p>
                   </div>
                 </div>
               </div>
 
               <button
                 onClick={handleCloseOrderModal}
-                className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold transition-colors"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-colors"
               >
                 Close
               </button>

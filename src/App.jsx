@@ -106,7 +106,8 @@ export default function App() {
     notificationEmail: '',
     emailjsServiceId: '',
     emailjsTemplateId: '',
-    emailjsPublicKey: ''
+    emailjsPublicKey: '',
+    processingFee: ''
   });
   const [configForm, setConfigForm] = useState({ ...globalConfig });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -133,6 +134,8 @@ export default function App() {
   const [collapsedDesigns, setCollapsedDesigns] = useState({});
   const [deleteConfirmDesignId, setDeleteConfirmDesignId] = useState(null);
   const [designEdits, setDesignEdits] = useState({}); // Track pending edits per design
+  const [tshirtBgLibraryExpanded, setTshirtBgLibraryExpanded] = useState(false);
+  const [pageInfoExpanded, setPageInfoExpanded] = useState(true);
 
   // Legacy Store Configuration State (for backward compatibility during transition)
   const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
@@ -265,7 +268,8 @@ export default function App() {
           notificationEmail: data.notificationEmail || '',
           emailjsServiceId: data.emailjsServiceId || '',
           emailjsTemplateId: data.emailjsTemplateId || '',
-          emailjsPublicKey: data.emailjsPublicKey || ''
+          emailjsPublicKey: data.emailjsPublicKey || '',
+          processingFee: data.processingFee || ''
         };
         setGlobalConfig(config);
         setConfigForm(config);
@@ -375,7 +379,8 @@ export default function App() {
     notificationEmail: globalConfig.notificationEmail || '',
     emailjsServiceId: globalConfig.emailjsServiceId || '',
     emailjsTemplateId: globalConfig.emailjsTemplateId || '',
-    emailjsPublicKey: globalConfig.emailjsPublicKey || ''
+    emailjsPublicKey: globalConfig.emailjsPublicKey || '',
+    processingFee: globalConfig.processingFee || ''
   }), [globalConfig]);
 
   const hasUnsavedConfigChanges = JSON.stringify(configForm) !== JSON.stringify(normalizedSavedConfig);
@@ -674,7 +679,8 @@ export default function App() {
             totalItems: totalItemsForDesign,
             totalPrice: totalItemsForDesign * design.pricePerShirt,
             timestamp: timestamp,
-            createdAt: timestamp
+            createdAt: timestamp,
+            isPaid: true // Automatically mark as paid since payment was processed via Square
           };
           
           orderPromises.push(addDoc(ordersRef, orderData));
@@ -692,7 +698,12 @@ export default function App() {
       await Promise.all(orderPromises);
       
       // Send email notification if EmailJS is configured
-      if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId && globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
+      // Use environment variables if available, otherwise fall back to database config
+      const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
+      const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
+      const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+      
+      if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
         try {
           // Format order details for email body
           const orderSummary = orderDetails.map(order => {
@@ -722,10 +733,10 @@ Order Date: ${new Date().toLocaleString()}`;
           };
           
           await emailjs.send(
-            globalConfig.emailjsServiceId,
-            globalConfig.emailjsTemplateId,
+            emailjsServiceId,
+            emailjsTemplateId,
             emailParams,
-            globalConfig.emailjsPublicKey
+            emailjsPublicKey
           );
         } catch (emailErr) {
           console.error('Error sending email notification:', emailErr);
@@ -744,11 +755,14 @@ Order Date: ${new Date().toLocaleString()}`;
 
   const handleCloseOrderModal = () => {
     setShowOrderModal(false);
-    setOrderSubmitted(false);
-    setOrderModalName('');
-    setOrderModalNotes('');
-    // Clear the cart
-    setSizesByDesign({});
+    // Only clear form and cart if order was successfully submitted
+    if (orderSubmitted) {
+      setOrderSubmitted(false);
+      setOrderModalName('');
+      setOrderModalNotes('');
+      setSizesByDesign({});
+    }
+    // If not submitted, keep selections so user can modify them
   };
 
   // Handle feedback submission for preview designs
@@ -778,8 +792,13 @@ Order Date: ${new Date().toLocaleString()}`;
       await addDoc(feedbackRef, feedbackDoc);
 
       // Send notification email if EmailJS is configured
-      if (globalConfig.emailjsServiceId && globalConfig.emailjsTemplateId &&
-          globalConfig.emailjsPublicKey && globalConfig.notificationEmail) {
+      // Use environment variables if available, otherwise fall back to database config
+      const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
+      const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
+      const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+      
+      if (emailjsServiceId && emailjsTemplateId &&
+          emailjsPublicKey && globalConfig.notificationEmail) {
         const emailBody = `${feedback}
 
 Submitted: ${new Date().toLocaleString()}`;
@@ -792,10 +811,10 @@ Submitted: ${new Date().toLocaleString()}`;
         };
 
         await emailjs.send(
-          globalConfig.emailjsServiceId,
-          globalConfig.emailjsTemplateId,
+          emailjsServiceId,
+          emailjsTemplateId,
           emailParams,
-          globalConfig.emailjsPublicKey
+          emailjsPublicKey
         );
       }
 
@@ -1311,7 +1330,7 @@ Submitted: ${new Date().toLocaleString()}`;
               );
               })}
 
-              {/* Single Submit Order Button at Bottom */}
+              {/* Single Place Order Button at Bottom */}
               {totalItems > 0 && (
                 <div className="flex justify-center sticky bottom-4">
                   <button
@@ -1324,7 +1343,7 @@ Submitted: ${new Date().toLocaleString()}`;
                     className="py-3 px-6 rounded-lg font-bold text-white transition-all flex items-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-700 hover:shadow-xl"
                   >
                     <ShoppingCart className="w-5 h-5" />
-                    Submit Order ({totalItems} items - ${totalPrice.toFixed(2)})
+                    Place Order ({totalItems} items - ${totalPrice.toFixed(2)})
                   </button>
                 </div>
               )}
@@ -1413,167 +1432,146 @@ Submitted: ${new Date().toLocaleString()}`;
                 <p className="text-sm text-gray-600 mb-4">These settings apply to all designs.</p>
                 
                 <form onSubmit={handleSaveConfig} className="space-y-4">
-                  {/* Page Title and Description */}
-                  <div className="pb-4 border-b border-gray-100">
-                    <h3 className="text-sm font-bold text-gray-900 mb-3">Page Information</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
-                        <input
-                          type="text"
-                          value={configForm.pageTitle}
-                          onChange={e => setConfigForm({...configForm, pageTitle: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="Enter page title"
-                        />
+                  {/* Page Information - Collapsible */}
+                  <div className="pb-4">
+                    <button
+                      type="button"
+                      onClick={() => setPageInfoExpanded(!pageInfoExpanded)}
+                      className="flex items-center gap-2 text-sm font-bold text-gray-900 hover:text-indigo-600 transition-colors mb-3"
+                    >
+                      {pageInfoExpanded ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                      <span>Page Information</span>
+                    </button>
+                    
+                    {pageInfoExpanded && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Page Title</label>
+                          <input
+                            type="text"
+                            value={configForm.pageTitle}
+                            onChange={e => setConfigForm({...configForm, pageTitle: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="Enter page title"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Page Description</label>
+                          <textarea
+                            value={configForm.pageDescription}
+                            onChange={e => setConfigForm({...configForm, pageDescription: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="Enter page description (optional)"
+                            rows="3"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Order notification email</label>
+                          <input
+                            type="email"
+                            value={configForm.notificationEmail}
+                            onChange={e => setConfigForm({...configForm, notificationEmail: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="you@example.com"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Processing Fee
+                            <span className="text-xs text-gray-500 ml-2">(optional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={configForm.processingFee}
+                            onChange={e => setConfigForm({...configForm, processingFee: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            placeholder="e.g., 2.90% + $0.30 or $1.50 or 3%"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Enter a flat fee ($1.50), percentage (3%), or combination (2.90% + $0.30) to cover Square transaction fees
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Page Description</label>
-                        <textarea
-                          value={configForm.pageDescription}
-                          onChange={e => setConfigForm({...configForm, pageDescription: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="Enter page description (optional)"
-                          rows="3"
-                        />
-                      </div>
-                    </div>
+                    )}
                   </div>
 
-                  <h3 className="text-sm font-bold text-gray-900 mb-3">Payment Information</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Venmo Username <span className="text-gray-400 font-normal">(without @)</span></label>
-                        <input
-                          type="text"
-                          value={configForm.venmoUsername}
-                          onChange={e => setConfigForm({...configForm, venmoUsername: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Cash App Cashtag <span className="text-gray-400 font-normal">(without $)</span></label>
-                        <input
-                          type="text"
-                          value={configForm.cashappUsername}
-                          onChange={e => setConfigForm({...configForm, cashappUsername: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                        />
-                      </div>
-
-                    </div>
-
-                    {/* EmailJS Settings */}
-                    <div className="pt-4 border-t border-gray-100">
-                      <h3 className="text-sm font-bold text-gray-900 mb-3">Email Notifications (EmailJS)</h3>
-                                            <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Admin Notification Email <span className="text-gray-400 font-normal">(Where alerts go)</span></label>
-                        <input
-                          type="email"
-                          value={configForm.notificationEmail}
-                          onChange={e => setConfigForm({...configForm, notificationEmail: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                          placeholder="you@example.com"
-                        />
-                      </div>
-                      <div className="grid md:grid-cols-3 gap-4 mb-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Service ID</label>
-                          <input
-                            type="text"
-                            value={configForm.emailjsServiceId}
-                            onChange={e => setConfigForm({...configForm, emailjsServiceId: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                            placeholder="service_xxx"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Order Template ID</label>
-                          <input
-                            type="text"
-                            value={configForm.emailjsTemplateId}
-                            onChange={e => setConfigForm({...configForm, emailjsTemplateId: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                            placeholder="template_xxx"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>
-                          <input
-                            type="text"
-                            value={configForm.emailjsPublicKey}
-                            onChange={e => setConfigForm({...configForm, emailjsPublicKey: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                            placeholder="Public Key"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* T-shirt Background Library Management */}
-                    <div className="mt-6 pt-6 border-t border-gray-200">
-                      <h3 className="text-sm font-bold text-gray-900 mb-3">T-shirt Background Library</h3>
-                      <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing designs. These will be available for both front and back images.</p>
-                      
-                      {/* Solid Color Backgrounds - Quarter Size, Single Row */}
-                      <div className="mb-4">
-                        <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
-                        <div className="flex flex-wrap gap-2">
-                          {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
-                            <div key={bg.id} className="relative group">
-                              <div className="w-12 h-12 rounded border-2 border-gray-300 overflow-hidden">
-                                <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                              </div>
-                              <p className="text-[10px] text-gray-600 mt-0.5 text-center truncate w-12">{bg.name}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      {/* Custom/Graphical Backgrounds - Half Size Grid */}
-                      {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
-                          <div className="grid grid-cols-6 md:grid-cols-8 gap-2 mb-3">
-                            {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
+                  {/* T-shirt Background Library Management - Collapsible */}
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setTshirtBgLibraryExpanded(!tshirtBgLibraryExpanded)}
+                      className="flex items-center gap-2 text-sm font-bold text-gray-900 hover:text-indigo-600 transition-colors"
+                    >
+                      {tshirtBgLibraryExpanded ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                      <span>T-shirt Background Library</span>
+                    </button>
+                    
+                    {tshirtBgLibraryExpanded && (
+                      <div className="mt-3">
+                        <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing designs. These will be available for both front and back images.</p>
+                        
+                        {/* Solid Color Backgrounds - Quarter Size, Single Row */}
+                        <div className="mb-4">
+                          <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
+                          <div className="flex flex-wrap gap-2">
+                            {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
                               <div key={bg.id} className="relative group">
-                                <div className="aspect-square rounded border-2 border-gray-300 overflow-hidden">
+                                <div className="w-12 h-12 rounded border-2 border-gray-300 overflow-hidden">
                                   <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
                                 </div>
-                                <p className="text-[10px] text-gray-600 mt-0.5 truncate">{bg.name}</p>
-                                {bg.id.startsWith('custom-') && (
-                                  <button
-                                    onClick={() => handleDeleteTshirtBg(bg.id)}
-                                    className="absolute top-0.5 right-0.5 bg-red-500 text-white p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-2.5 h-2.5" />
-                                  </button>
-                                )}
+                                <p className="text-[10px] text-gray-600 mt-0.5 text-center truncate w-12">{bg.name}</p>
                               </div>
                             ))}
                           </div>
                         </div>
-                      )}
-                      
-                      <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium border border-gray-300">
-                        <Upload className="w-4 h-4" />
-                        <span>Add T-shirt Background</span>
-                        <input
-                          type="file"
-                          accept="image/jpeg, image/png"
-                          className="hidden"
-                          onChange={handleTshirtBgUpload}
-                        />
-                      </label>
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-                    >
-                      Save Global Settings
-                    </button>
+                        
+                        {/* Custom/Graphical Backgrounds - Half Size Grid */}
+                        {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
+                            <div className="grid grid-cols-6 md:grid-cols-8 gap-2 mb-3">
+                              {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
+                                <div key={bg.id} className="relative group">
+                                  <div className="aspect-square rounded border-2 border-gray-300 overflow-hidden">
+                                    <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                                  </div>
+                                  <p className="text-[10px] text-gray-600 mt-0.5 truncate">{bg.name}</p>
+                                  {bg.id.startsWith('custom-') && (
+                                    <button
+                                      onClick={() => handleDeleteTshirtBg(bg.id)}
+                                      className="absolute top-0.5 right-0.5 bg-red-500 text-white p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium border border-gray-300">
+                          <Upload className="w-4 h-4" />
+                          <span>Add T-shirt Background</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg, image/png"
+                            className="hidden"
+                            onChange={handleTshirtBgUpload}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
                   </form>
               </div>
 
