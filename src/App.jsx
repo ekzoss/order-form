@@ -185,6 +185,7 @@ export default function App() {
 
   // Admin State
   const [adminError, setAdminError] = useState('');
+  const [adminAccessDenied, setAdminAccessDenied] = useState(false);
   const [orders, setOrders] = useState([]);
   const [editingOrderId, setEditingOrderId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
@@ -310,6 +311,9 @@ export default function App() {
   useEffect(() => {
     if (!user || view !== 'adminDashboard') return;
 
+    setAdminAccessDenied(false);
+    setAdminError('');
+
     // Fetch Orders
     const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
     const q = query(ordersRef);
@@ -323,7 +327,12 @@ export default function App() {
       setOrders(fetchedOrders);
     }, (err) => {
       console.error("Error fetching orders:", err);
-      setAdminError("Failed to load orders.");
+      if (err?.code === 'permission-denied') {
+        setAdminAccessDenied(true);
+        setAdminError('Your account is allowed by the app, but Firestore denied admin access. Check that this UID is included in your Firestore admin rules.');
+      } else {
+        setAdminError("Failed to load orders.");
+      }
     });
 
     // Fetch Feedback
@@ -337,6 +346,12 @@ export default function App() {
       setFeedbackList(fetchedFeedback);
     }, (err) => {
       console.error("Error fetching feedback:", err);
+      if (err?.code === 'permission-denied') {
+        setAdminAccessDenied(true);
+        setAdminError('Your account is allowed by the app, but Firestore denied admin access. Check that this UID is included in your Firestore admin rules.');
+      } else {
+        setAdminError("Failed to load feedback.");
+      }
     });
 
     return () => {
@@ -923,6 +938,7 @@ Submitted: ${new Date().toLocaleString()}`;
         return;
       }
 
+      setAdminAccessDenied(false);
       setView('adminDashboard');
     } catch (err) {
       console.error('Admin sign-in error:', err);
@@ -947,6 +963,7 @@ Submitted: ${new Date().toLocaleString()}`;
       console.error('Admin sign-out error:', err);
     }
 
+    setAdminAccessDenied(false);
     setAdminError('');
     setView('store');
     setOrderSuccess(false);
@@ -1376,7 +1393,20 @@ Submitted: ${new Date().toLocaleString()}`;
                 </div>
               </div>
 
+              {adminAccessDenied && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+                  <h2 className="text-lg font-bold text-red-900 mb-2">Admin Firestore Access Denied</h2>
+                  <p className="text-sm text-red-800 mb-3">
+                    This Google account passed the app admin allowlist, but Firestore rules denied access to admin data.
+                  </p>
+                  <p className="text-sm text-red-800">
+                    Make sure this UID is included in your Firestore <code>isAdmin()</code> rule, not just in <code>VITE_ADMIN_UIDS</code>.
+                  </p>
+                </div>
+              )}
 
+              {!adminAccessDenied && (
+              <>
               {/* --- Global Settings Section --- */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Global Settings</h2>
@@ -1969,6 +1999,8 @@ Submitted: ${new Date().toLocaleString()}`;
                   onClick={async () => {
                     // Discard all pending design edits
                     setDesignEdits({});
+                    setAdminAccessDenied(false);
+                    setAdminError('');
                     setView('store');
                     setOrderSuccess(false);
                   }}
@@ -1988,6 +2020,8 @@ Submitted: ${new Date().toLocaleString()}`;
                     const designsSaved = await saveAllDesignEdits();
                     if (!designsSaved) return;
                     
+                    setAdminAccessDenied(false);
+                    setAdminError('');
                     setView('store');
                     setOrderSuccess(false);
                   }}
@@ -1997,6 +2031,8 @@ Submitted: ${new Date().toLocaleString()}`;
                   Save and Exit
                 </button>
               </div>
+              </>
+              )}
 
             </div>
           )}
