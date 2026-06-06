@@ -3,9 +3,7 @@ import {
   ShoppingCart,
   ShieldCheck,
   Lock,
-  LogOut,
   ArrowLeft,
-  CheckCircle2,
   AlertCircle,
   Edit2,
   Trash2,
@@ -16,7 +14,6 @@ import {
   Image as ImageIcon,
   Printer,
   Plus,
-  RefreshCw,
   ChevronDown,
   ChevronUp,
   ArrowUp,
@@ -24,11 +21,17 @@ import {
 } from 'lucide-react';
 import ImageEditorModal from './ImageEditorModal';
 import BackgroundEditorModal from './BackgroundEditorModal';
+import OrderSubmissionModal from './OrderSubmissionModal';
+import { DEFAULT_TSHIRT_BACKGROUNDS, SIZES } from './constants';
+import { compressImage, compositeImageWithTshirt } from './imageUtils';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  GoogleAuthProvider,
   signInAnonymously,
   signInWithCustomToken,
+  signInWithPopup,
+  signOut,
   onAuthStateChanged
 } from 'firebase/auth';
 import {
@@ -48,228 +51,46 @@ import emailjs from '@emailjs/browser';
 
 
 // --- Firebase Initialization ---
-// Your web app's Firebase configuration
+// Firebase config is provided by Vite env vars so the same codebase can be
+// deployed to multiple Vercel projects with different Firebase backends.
 const firebaseConfig = {
-  apiKey: "AIzaSyBtdlYss5_ic-pf2uQoXtXNvChYIh20geA",
-  authDomain: "order-form-9d6b8.firebaseapp.com",
-  projectId: "order-form-9d6b8",
-  storageBucket: "order-form-9d6b8.firebasestorage.app",
-  messagingSenderId: "765640988540",
-  appId: "1:765640988540:web:72b33984957bd2d74476f9"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
+
+const missingFirebaseEnvVars = Object.entries({
+  VITE_FIREBASE_API_KEY: firebaseConfig.apiKey,
+  VITE_FIREBASE_AUTH_DOMAIN: firebaseConfig.authDomain,
+  VITE_FIREBASE_PROJECT_ID: firebaseConfig.projectId,
+  VITE_FIREBASE_STORAGE_BUCKET: firebaseConfig.storageBucket,
+  VITE_FIREBASE_MESSAGING_SENDER_ID: firebaseConfig.messagingSenderId,
+  VITE_FIREBASE_APP_ID: firebaseConfig.appId
+})
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missingFirebaseEnvVars.length > 0) {
+  throw new Error(
+    `Missing Firebase env vars: ${missingFirebaseEnvVars.join(', ')}. ` +
+    `Create a local .env file based on .env.example and restart the Vite dev server.`
+  );
+}
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
 
 // --- Constants ---
-const ADMIN_PASSWORD = "admin123";
-const SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+const ADMIN_UIDS = (import.meta.env.VITE_ADMIN_UIDS || '')
+  .split(',')
+  .map(uid => uid.trim())
+  .filter(Boolean);
 
-// Helper function to generate solid color background as base64
-const generateSolidColorBackground = (color, width = 800, height = 1000) => {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', 0.9);
-};
-
-// Default t-shirt backgrounds - solid colors
-const DEFAULT_TSHIRT_BACKGROUNDS = [
-  {
-    id: 'white',
-    name: 'White',
-    color: '#FFFFFF',
-    url: generateSolidColorBackground('#FFFFFF')
-  },
-  {
-    id: 'black',
-    name: 'Black',
-    color: '#000000',
-    url: generateSolidColorBackground('#000000')
-  },
-  {
-    id: 'gray',
-    name: 'Gray',
-    color: '#808080',
-    url: generateSolidColorBackground('#808080')
-  },
-  {
-    id: 'navy',
-    name: 'Navy',
-    color: '#001F3F',
-    url: generateSolidColorBackground('#001F3F')
-  },
-  {
-    id: 'red',
-    name: 'Red',
-    color: '#DC143C',
-    url: generateSolidColorBackground('#DC143C')
-  },
-  {
-    id: 'maroon',
-    name: 'Maroon',
-    color: '#800000',
-    url: generateSolidColorBackground('#800000')
-  },
-  {
-    id: 'green',
-    name: 'Forest Green',
-    color: '#228B22',
-    url: generateSolidColorBackground('#228B22')
-  },
-  {
-    id: 'royal',
-    name: 'Royal Blue',
-    color: '#4169E1',
-    url: generateSolidColorBackground('#4169E1')
-  },
-  {
-    id: 'purple',
-    name: 'Purple',
-    color: '#800080',
-    url: generateSolidColorBackground('#800080')
-  },
-  {
-    id: 'orange',
-    name: 'Orange',
-    color: '#FF8C00',
-    url: generateSolidColorBackground('#FF8C00')
-  },
-  {
-    id: 'brown',
-    name: 'Brown',
-    color: '#8B4513',
-    url: generateSolidColorBackground('#8B4513')
-  },
-  {
-    id: 'pink',
-    name: 'Pink',
-    color: '#FF69B4',
-    url: generateSolidColorBackground('#FF69B4')
-  },
-  {
-    id: 'yellow',
-    name: 'Gold',
-    color: '#FFD700',
-    url: generateSolidColorBackground('#FFD700')
-  },
-  {
-    id: 'lightblue',
-    name: 'Light Blue',
-    color: '#87CEEB',
-    url: generateSolidColorBackground('#87CEEB')
-  }
-];
-
-// --- Helper: Compress Image to Base64 ---
-// Compresses uploaded images so they fit safely within Firestore limits
-const compressImage = (file) => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new window.Image();
-      img.src = event.target.result;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d', { alpha: true });
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        // Use PNG for files with transparency, JPEG for others
-        const isPNG = file.type === 'image/png';
-        const format = isPNG ? 'image/png' : 'image/jpeg';
-        const quality = isPNG ? 0.95 : 0.8;
-        
-        resolve(canvas.toDataURL(format, quality));
-      };
-    };
-  });
-};
-
-// Composite design image on top of t-shirt background with proper PNG transparency handling
-const compositeImageWithTshirt = (designImage, tshirtBackgroundUrl, position = { x: 50, y: 28 }, sizePercent = 45) => {
-  return new Promise((resolve, reject) => {
-    // Create canvas with explicit alpha channel
-    const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 1000;
-    const ctx = canvas.getContext('2d', {
-      alpha: true,
-      willReadFrequently: false
-    });
-    
-    // Load t-shirt background image
-    const tshirtImg = new window.Image();
-    tshirtImg.crossOrigin = 'anonymous';
-    tshirtImg.src = tshirtBackgroundUrl;
-    
-    tshirtImg.onload = () => {
-      // Draw the t-shirt background (no color tinting, just use the image as-is)
-      ctx.drawImage(tshirtImg, 0, 0, canvas.width, canvas.height);
-      
-      // Now load and composite the design on top
-      const designImg = new window.Image();
-      designImg.crossOrigin = 'anonymous';
-      designImg.src = designImage;
-      
-      designImg.onload = () => {
-        // Calculate design size based on percentage
-        const maxDesignWidth = canvas.width * (sizePercent / 100);
-        
-        let designWidth = maxDesignWidth;
-        let designHeight = (designImg.height / designImg.width) * designWidth;
-        
-        // Position based on percentage (x, y are center points)
-        const x = (canvas.width * (position.x / 100)) - (designWidth / 2);
-        const y = (canvas.height * (position.y / 100));
-        
-        // Draw design with full alpha support
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(designImg, x, y, designWidth, designHeight);
-        ctx.restore();
-        
-        // Export as PNG to preserve transparency
-        try {
-          const dataUrl = canvas.toDataURL('image/png', 1.0);
-          resolve(dataUrl);
-        } catch (err) {
-          reject(new Error('Failed to export composite image: ' + err.message));
-        }
-      };
-      
-      designImg.onerror = (err) => {
-        reject(new Error('Failed to load design image: ' + err));
-      };
-    };
-    
-    tshirtImg.onerror = (err) => {
-      reject(new Error('Failed to load t-shirt template: ' + err));
-    };
-  });
-};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -363,7 +184,6 @@ export default function App() {
   const [orderSubmitted, setOrderSubmitted] = useState(false);
 
   // Admin State
-  const [passwordInput, setPasswordInput] = useState('');
   const [adminError, setAdminError] = useState('');
   const [orders, setOrders] = useState([]);
   const [editingOrderId, setEditingOrderId] = useState(null);
@@ -1089,14 +909,24 @@ Submitted: ${new Date().toLocaleString()}`;
   }, [sizesByDesign, designs]);
 
 
-  const handleAdminLogin = (e) => {
-    e.preventDefault();
-    if (passwordInput === ADMIN_PASSWORD) {
+  const handleAdminLogin = async () => {
+    setAdminError('');
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const adminUid = result.user?.uid;
+
+      if (!adminUid || !ADMIN_UIDS.includes(adminUid)) {
+        await signOut(auth);
+        setAdminError('This Google account is not authorized for admin access.');
+        return;
+      }
+
       setView('adminDashboard');
-      setPasswordInput('');
-      setAdminError('');
-    } else {
-      setAdminError('Incorrect password.');
+    } catch (err) {
+      console.error('Admin sign-in error:', err);
+      setAdminError('Google sign-in failed. Please try again.');
     }
   };
 
@@ -1109,6 +939,15 @@ Submitted: ${new Date().toLocaleString()}`;
       }
     }
 
+    try {
+      if (user && !user.isAnonymous) {
+        await signOut(auth);
+      }
+    } catch (err) {
+      console.error('Admin sign-out error:', err);
+    }
+
+    setAdminError('');
     setView('store');
     setOrderSuccess(false);
   };
@@ -1500,26 +1339,17 @@ Submitted: ${new Date().toLocaleString()}`;
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <h2 className="text-2xl font-bold text-gray-900">Admin Access</h2>
-                <p className="text-gray-500 text-sm mt-1">Enter the password to view orders.</p>
+                <p className="text-gray-500 text-sm mt-1">Sign in with your authorized Google account to view orders.</p>
               </div>
               
-              <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div className="space-y-4">
                 {adminError && <p className="text-red-600 text-sm text-center bg-red-50 p-2 rounded">{adminError}</p>}
-                <div>
-                  <input
-                    type="password"
-                    required
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-center tracking-widest"
-                    placeholder="Password"
-                  />
-                </div>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleAdminLogin}
                   className="w-full py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors"
                 >
-                  Access Dashboard
+                  Sign in with Google
                 </button>
                 <button
                   type="button"
@@ -1531,7 +1361,7 @@ Submitted: ${new Date().toLocaleString()}`;
                 >
                   <ArrowLeft className="w-4 h-4" /> Back to Store
                 </button>
-              </form>
+              </div>
             </div>
           )}
 
@@ -2231,188 +2061,21 @@ Submitted: ${new Date().toLocaleString()}`;
         )}
       </div>
 
-      {/* Order Submission Modal */}
-      {showOrderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  {orderSubmitted ? 'Order Confirmed!' : 'Review Your Order'}
-                </h2>
-                <button
-                  onClick={handleCloseOrderModal}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Order Summary */}
-              <div className="mb-6 space-y-3">
-                <h3 className="font-semibold text-gray-700 mb-3">Order Summary:</h3>
-                {Object.entries(sizesByDesign).map(([designId, designSizes]) => {
-                  const design = designs.find(d => d.id === designId);
-                  if (!design) return null;
-                  
-                  const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
-                  if (totalItemsForDesign === 0) return null;
-                  
-                  const sizesText = SIZES
-                    .filter(size => designSizes[size] > 0)
-                    .map(size => `${size}: ${designSizes[size]}`)
-                    .join(', ');
-                  
-                  return (
-                    <div key={designId} className="flex justify-between items-start p-3 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{design.name}</p>
-                        <p className="text-sm text-gray-600">{sizesText}</p>
-                      </div>
-                      <div className="text-right ml-4">
-                        <p className="font-semibold text-gray-900">${(totalItemsForDesign * design.pricePerShirt).toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">{totalItemsForDesign} × ${design.pricePerShirt.toFixed(2)}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {/* Total */}
-                <div className="flex justify-between items-center pt-3 border-t-2 border-gray-200">
-                  <p className="text-lg font-bold text-gray-900">Total:</p>
-                  <p className="text-xl font-bold text-indigo-600">${totalPrice.toFixed(2)}</p>
-                </div>
-              </div>
-
-              {!orderSubmitted ? (
-                <>
-                  {/* Name Field */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={orderModalName}
-                      onChange={(e) => setOrderModalName(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      placeholder="Enter your name"
-                      required
-                    />
-                  </div>
-
-                  {/* Notes Field */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notes <span className="text-gray-400">(optional)</span>
-                    </label>
-                    <textarea
-                      value={orderModalNotes}
-                      onChange={(e) => setOrderModalNotes(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[80px]"
-                      placeholder="Any special requests or notes..."
-                    />
-                  </div>
-
-                  {/* Submit Button */}
-                  <button
-                    onClick={handleSubmitMultiDesignOrder}
-                    disabled={isSubmitting || !orderModalName.trim()}
-                    className={`w-full py-3 rounded-lg font-bold text-white transition-all flex items-center justify-center gap-2 ${
-                      isSubmitting || !orderModalName.trim()
-                        ? 'bg-indigo-300 cursor-not-allowed'
-                        : 'bg-indigo-600 hover:bg-indigo-700'
-                    }`}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        Submitting...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-5 h-5" />
-                        Submit Order
-                      </>
-                    )}
-                  </button>
-                </>
-              ) : (
-                <>
-                  {/* Order Confirmed - Show read-only info */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700">
-                      {orderModalName}
-                    </div>
-                  </div>
-
-                  {orderModalNotes && (
-                    <div className="mb-6">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                      <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 whitespace-pre-wrap">
-                        {orderModalNotes}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Payment Instructions */}
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-green-900 mb-2">Thank you for your order!</p>
-                        <p className="text-sm text-green-800 mb-3">Please submit payment via:</p>
-                        <div className="space-y-2 text-sm">
-                          {globalConfig.venmoUsername && (
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-green-900">Venmo:</span>
-                              <a
-                                href={`https://venmo.com/${globalConfig.venmoUsername}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-green-800 hover:text-green-600 underline font-medium"
-                              >
-                                @{globalConfig.venmoUsername}
-                              </a>
-                            </div>
-                          )}
-                          {globalConfig.cashappUsername && (
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-green-900">Cash App:</span>
-                              <a
-                                href={`https://cash.app/$${globalConfig.cashappUsername}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-green-800 hover:text-green-600 underline font-medium"
-                              >
-                                ${globalConfig.cashappUsername}
-                              </a>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-green-900">Cash:</span>
-                            <span className="text-green-800">In person</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Close Button */}
-                  <button
-                    onClick={handleCloseOrderModal}
-                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold transition-colors"
-                  >
-                    Close
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <OrderSubmissionModal
+        showOrderModal={showOrderModal}
+        orderSubmitted={orderSubmitted}
+        handleCloseOrderModal={handleCloseOrderModal}
+        sizesByDesign={sizesByDesign}
+        designs={designs}
+        totalPrice={totalPrice}
+        orderModalName={orderModalName}
+        setOrderModalName={setOrderModalName}
+        orderModalNotes={orderModalNotes}
+        setOrderModalNotes={setOrderModalNotes}
+        handleSubmitMultiDesignOrder={handleSubmitMultiDesignOrder}
+        isSubmitting={isSubmitting}
+        globalConfig={globalConfig}
+      />
     </>
   );
 }
