@@ -22,158 +22,103 @@ import {
 import ImageEditorModal from './ImageEditorModal';
 import BackgroundEditorModal from './BackgroundEditorModal';
 import OrderSubmissionModal from './OrderSubmissionModal';
+import AdminLogin from './components/AdminLogin';
 import { DEFAULT_TSHIRT_BACKGROUNDS, SIZES } from './constants';
 import { compressImage, compositeImageWithTshirt } from './imageUtils';
-import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInAnonymously,
-  signInWithCustomToken,
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged
-} from 'firebase/auth';
-import {
-  getFirestore,
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  doc,
-  updateDoc,
-  deleteDoc,
-  setDoc,
-  getDoc,
-  writeBatch
-} from 'firebase/firestore';
-import emailjs from '@emailjs/browser';
-
-
-// --- Firebase Initialization ---
-// Firebase config is provided by Vite env vars so the same codebase can be
-// deployed to multiple Vercel projects with different Firebase backends.
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
-
-const missingFirebaseEnvVars = Object.entries({
-  VITE_FIREBASE_API_KEY: firebaseConfig.apiKey,
-  VITE_FIREBASE_AUTH_DOMAIN: firebaseConfig.authDomain,
-  VITE_FIREBASE_PROJECT_ID: firebaseConfig.projectId,
-  VITE_FIREBASE_STORAGE_BUCKET: firebaseConfig.storageBucket,
-  VITE_FIREBASE_MESSAGING_SENDER_ID: firebaseConfig.messagingSenderId,
-  VITE_FIREBASE_APP_ID: firebaseConfig.appId
-})
-  .filter(([, value]) => !value)
-  .map(([key]) => key);
-
-if (missingFirebaseEnvVars.length > 0) {
-  throw new Error(
-    `Missing Firebase env vars: ${missingFirebaseEnvVars.join(', ')}. ` +
-    `Create a local .env file based on .env.example and restart the Vite dev server.`
-  );
-}
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
-
-// --- Constants ---
-const ADMIN_UIDS = (import.meta.env.VITE_ADMIN_UIDS || '')
-  .split(',')
-  .map(uid => uid.trim())
-  .filter(Boolean);
-
+import { db, appId } from './firebase';
+import { useAuth } from './hooks/useAuth';
+import { useGlobalConfig } from './hooks/useGlobalConfig';
+import { useDesigns } from './hooks/useDesigns';
+import { useOrders } from './hooks/useOrders';
+import { useTshirtBackgrounds } from './hooks/useTshirtBackgrounds';
+import { useFeedback } from './hooks/useFeedback';
+import { submitMultiDesignOrder } from './utils/orderHelpers';
 
 export default function App() {
-  const [user, setUser] = useState(null);
   const [view, setView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-
-  // Global Configuration State (payment info, email settings - NOT design-specific)
-  const [globalConfig, setGlobalConfig] = useState({
-    pageTitle: 'Austin Velocity 161 Diamond Team Shirt - Order form',
-    pageDescription: '',
-    venmoUsername: 'ekzoss',
-    cashappUsername: 'KandiZoss',
-    notificationEmail: '',
-    emailjsServiceId: '',
-    emailjsTemplateId: '',
-    emailjsPublicKey: '',
-    processingFee: ''
-  });
-  const [configForm, setConfigForm] = useState({ ...globalConfig });
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  
-  // Feedback form state (for preview designs)
-  const [feedbackByDesign, setFeedbackByDesign] = useState({});
-  const [submittingFeedback, setSubmittingFeedback] = useState({});
-  const [submittedFeedback, setSubmittedFeedback] = useState({}); // Track which designs have submitted feedback
-  const [feedbackList, setFeedbackList] = useState([]); // All feedback from Firestore
-
-  // Design Management State
-  const [designs, setDesigns] = useState([]);
-  const [isLoadingDesigns, setIsLoadingDesigns] = useState(true);
   const [selectedDesignId, setSelectedDesignId] = useState(null);
-  const [editingDesignId, setEditingDesignId] = useState(null);
-  const [designForm, setDesignForm] = useState(null);
-  const [isCreatingDesign, setIsCreatingDesign] = useState(false);
-  const [newDesignForm, setNewDesignForm] = useState({
-    name: '',
-    productHeader: '',
-    productDescription: '',
-    pricePerShirt: 7.50
-  });
-  const [collapsedDesigns, setCollapsedDesigns] = useState({});
-  const [deleteConfirmDesignId, setDeleteConfirmDesignId] = useState(null);
-  const [designEdits, setDesignEdits] = useState({}); // Track pending edits per design
+
+  // Use custom hooks
+  const { user, isLoadingAuth, adminError, setAdminError, handleAdminLogin, handleAdminLogout, isAdmin } = useAuth();
+  const {
+    globalConfig,
+    configForm,
+    setConfigForm,
+    isSavingConfig,
+    storeConfig,
+    hasUnsavedConfigChanges,
+    saveConfig
+  } = useGlobalConfig(user);
+  
+  const {
+    designs,
+    isLoadingDesigns,
+    selectedDesign,
+    editingDesignId,
+    setEditingDesignId,
+    designForm,
+    setDesignForm,
+    collapsedDesigns,
+    deleteConfirmDesignId,
+    setDeleteConfirmDesignId,
+    designEdits,
+    handleCreateDesign,
+    handleStartEditDesign,
+    handleSaveDesignEdit,
+    handleDeleteDesign,
+    toggleDesignCollapse,
+    handleMoveDesign,
+    handleUpdateDesignField,
+    handleChangeDesignStatus,
+    saveAllDesignEdits,
+    handleSaveImageEditor: handleSaveImageEditorFromHook
+  } = useDesigns(user, selectedDesignId, setSelectedDesignId);
+  
+  const {
+    orders,
+    editingOrderId,
+    editFormData,
+    setEditFormData,
+    deleteConfirmId,
+    setDeleteConfirmId,
+    adminAccessDenied,
+    adminError: ordersAdminError,
+    handleEditOrder,
+    handleSaveEdit,
+    handleCancelEdit,
+    handleDeleteOrder,
+    handleTogglePaid
+  } = useOrders(user, view);
+
+  const {
+    tshirtBackgrounds,
+    backgroundEditorModal,
+    handleTshirtBgUpload,
+    handleSaveBackground,
+    handleCloseBackgroundEditor,
+    handleDeleteTshirtBg
+  } = useTshirtBackgrounds(user);
+
+  const {
+    feedbackByDesign,
+    setFeedbackByDesign,
+    submittingFeedback,
+    submittedFeedback,
+    feedbackList,
+    handleSubmitFeedback,
+    handleDeleteFeedback
+  } = useFeedback(user, view);
+
+  // UI State
   const [tshirtBgLibraryExpanded, setTshirtBgLibraryExpanded] = useState(false);
   const [pageInfoExpanded, setPageInfoExpanded] = useState(true);
-
-  // Legacy Store Configuration State (for backward compatibility during transition)
-  const [storeConfig, setStoreConfig] = useState({ frontImage: null, backImage: null });
-  const [activeTab, setActiveTab] = useState('front'); // 'front' or 'back' image view
   const [zoomedImage, setZoomedImage] = useState(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
   
   // Image Editor Modal State
   const [imageEditorModal, setImageEditorModal] = useState({
     isOpen: false,
     side: null,
     designId: null
-  });
-  
-  // Background Editor Modal State
-  const [backgroundEditorModal, setBackgroundEditorModal] = useState({
-    isOpen: false,
-    image: null,
-    imageName: ''
-  });
-  
-  // T-shirt background state (always enabled now)
-  const [selectedTshirtBg, setSelectedTshirtBg] = useState({
-    frontImage: DEFAULT_TSHIRT_BACKGROUNDS[0].url,
-    backImage: DEFAULT_TSHIRT_BACKGROUNDS[0].url
-  });
-  const [tshirtBackgrounds, setTshirtBackgrounds] = useState(DEFAULT_TSHIRT_BACKGROUNDS);
-  const [designImage, setDesignImage] = useState({ frontImage: null, backImage: null });
-  const [previewImage, setPreviewImage] = useState({ frontImage: null, backImage: null });
-  
-  // Design positioning and sizing state (percentage-based for responsiveness)
-  const [designPosition, setDesignPosition] = useState({
-    frontImage: { x: 50, y: 28 }, // x, y as percentages
-    backImage: { x: 50, y: 28 }
-  });
-  const [designSize, setDesignSize] = useState({
-    frontImage: 45, // width as percentage of canvas
-    backImage: 45
   });
 
   // Form State
@@ -185,14 +130,6 @@ export default function App() {
   const [orderModalName, setOrderModalName] = useState('');
   const [orderModalNotes, setOrderModalNotes] = useState('');
   const [orderSubmitted, setOrderSubmitted] = useState(false);
-
-  // Admin State
-  const [adminError, setAdminError] = useState('');
-  const [adminAccessDenied, setAdminAccessDenied] = useState(false);
-  const [orders, setOrders] = useState([]);
-  const [editingOrderId, setEditingOrderId] = useState(null);
-  const [editFormData, setEditFormData] = useState(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   // --- 1. Update Browser Title ---
   useEffect(() => {
@@ -208,394 +145,12 @@ export default function App() {
     }
   }, [view]);
 
-  // --- 3. Authentication ---
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth error:", err);
-        setError("Failed to connect to the ordering system.");
-      }
-    };
-    
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsLoadingAuth(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // --- 2. Check Migration Status & Fetch Data ---
-  useEffect(() => {
-    if (!user) return;
-
-
-    // Fetch T-shirt Background Library
-    const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
-    const unsubscribeBgLibrary = onSnapshot(bgLibraryRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().library) {
-        const customBackgrounds = docSnap.data().library;
-        const filteredCustom = customBackgrounds.filter(
-          bg => !DEFAULT_TSHIRT_BACKGROUNDS.find(def => def.id === bg.id)
-        );
-        setTshirtBackgrounds([...DEFAULT_TSHIRT_BACKGROUNDS, ...filteredCustom]);
-      } else {
-        setTshirtBackgrounds(DEFAULT_TSHIRT_BACKGROUNDS);
-      }
-    });
-
-    // Fetch Global Config (payment info, email settings only)
-    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-    const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        // Store legacy data for backward compatibility
-        setStoreConfig(data);
-        // Extract only global settings
-        const config = {
-          pageTitle: data.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
-          pageDescription: data.pageDescription || '',
-          venmoUsername: data.venmoUsername || 'ekzoss',
-          cashappUsername: data.cashappUsername || 'KandiZoss',
-          notificationEmail: data.notificationEmail || '',
-          emailjsServiceId: data.emailjsServiceId || '',
-          emailjsTemplateId: data.emailjsTemplateId || '',
-          emailjsPublicKey: data.emailjsPublicKey || '',
-          processingFee: data.processingFee || ''
-        };
-        setGlobalConfig(config);
-        setConfigForm(config);
-      }
-    });
-
-    // Fetch Designs
-    const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
-    const unsubscribeDesigns = onSnapshot(designsRef, (snapshot) => {
-      const fetchedDesigns = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      // Sort by order field (ascending), then by createdAt (descending) as fallback
-      fetchedDesigns.sort((a, b) => {
-        const aOrder = a.order !== undefined ? a.order : 999999;
-        const bOrder = b.order !== undefined ? b.order : 999999;
-        
-        if (aOrder !== bOrder) {
-          return aOrder - bOrder;
-        }
-        // If both have same order (or both undefined), sort by createdAt
-        return (b.createdAt || 0) - (a.createdAt || 0);
-      });
-      
-      setDesigns(fetchedDesigns);
-      setIsLoadingDesigns(false);
-      
-      // Auto-select first design if none selected
-      if (!selectedDesignId && fetchedDesigns.length > 0) {
-        setSelectedDesignId(fetchedDesigns[0].id);
-      }
-    });
-
-    return () => {
-      unsubscribeBgLibrary();
-      unsubscribeConfig();
-      unsubscribeDesigns();
-    };
-  }, [user, selectedDesignId]);
-
-  useEffect(() => {
-    if (!user || view !== 'adminDashboard') return;
-
-    setAdminAccessDenied(false);
-    setAdminError('');
-
-    // Fetch Orders
-    const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
-    const q = query(ordersRef);
-
-    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
-      const fetchedOrders = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      fetchedOrders.sort((a, b) => b.timestamp - a.timestamp);
-      setOrders(fetchedOrders);
-    }, (err) => {
-      console.error("Error fetching orders:", err);
-      if (err?.code === 'permission-denied') {
-        setAdminAccessDenied(true);
-        setAdminError('Your account is allowed by the app, but Firestore denied admin access. Check that this UID is included in your Firestore admin rules.');
-      } else {
-        setAdminError("Failed to load orders.");
-      }
-    });
-
-    // Fetch Feedback
-    const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
-    const unsubscribeFeedback = onSnapshot(feedbackRef, (snapshot) => {
-      const fetchedFeedback = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      fetchedFeedback.sort((a, b) => b.timestamp - a.timestamp);
-      setFeedbackList(fetchedFeedback);
-    }, (err) => {
-      console.error("Error fetching feedback:", err);
-      if (err?.code === 'permission-denied') {
-        setAdminAccessDenied(true);
-        setAdminError('Your account is allowed by the app, but Firestore denied admin access. Check that this UID is included in your Firestore admin rules.');
-      } else {
-        setAdminError("Failed to load feedback.");
-      }
-    });
-
-    return () => {
-      unsubscribeOrders();
-      unsubscribeFeedback();
-    };
-  }, [user, view]);
-
-  // --- Get Selected Design ---
-  const selectedDesign = useMemo(() => {
-    return designs.find(d => d.id === selectedDesignId) || null;
-  }, [designs, selectedDesignId]);
-
-  // --- Actions ---
-
-  const normalizedSavedConfig = useMemo(() => ({
-    pageTitle: globalConfig.pageTitle || 'Austin Velocity 161 Diamond Team Shirt - Order form',
-    pageDescription: globalConfig.pageDescription || '',
-    venmoUsername: globalConfig.venmoUsername || 'ekzoss',
-    cashappUsername: globalConfig.cashappUsername || 'KandiZoss',
-    notificationEmail: globalConfig.notificationEmail || '',
-    emailjsServiceId: globalConfig.emailjsServiceId || '',
-    emailjsTemplateId: globalConfig.emailjsTemplateId || '',
-    emailjsPublicKey: globalConfig.emailjsPublicKey || '',
-    processingFee: globalConfig.processingFee || ''
-  }), [globalConfig]);
-
-  const hasUnsavedConfigChanges = JSON.stringify(configForm) !== JSON.stringify(normalizedSavedConfig);
-
-  const saveConfig = async () => {
-    setIsSavingConfig(true);
-    try {
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
-      await setDoc(configRef, configForm, { merge: true });
-      return true;
-    } catch (err) {
-      console.error("Save config error", err);
-      alert("Failed to save settings.");
-      return false;
-    } finally {
-      setIsSavingConfig(false);
-    }
-  };
-
   const handleSaveConfig = async (e) => {
     e.preventDefault();
     await saveConfig();
   };
 
-  // --- Design Management Actions ---
-
-
-  const handleCreateDesign = async () => {
-    try {
-      // Generate unique default name
-      const existingNumbers = designs
-        .map(d => {
-          const match = d.name.match(/^New Design (\d+)$/);
-          return match ? parseInt(match[1]) : 0;
-        })
-        .filter(n => n > 0);
-      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
-      const defaultName = `New Design ${nextNumber}`;
-
-      const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
-      
-      // Calculate order value - place at end
-      const maxOrder = designs.length > 0
-        ? Math.max(...designs.map(d => d.order !== undefined ? d.order : 0))
-        : -1;
-      
-      const newDesign = {
-        name: defaultName,
-        productHeader: defaultName,
-        productDescription: '',
-        pricePerShirt: 7.50,
-        frontImage: null,
-        backImage: null,
-        status: 'preview',
-        order: maxOrder + 1,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-
-      const docRef = await addDoc(designsRef, newDesign);
-      
-      // Auto-expand the new design
-      setCollapsedDesigns(prev => ({
-        ...prev,
-        [docRef.id]: false
-      }));
-      
-      setSelectedDesignId(docRef.id);
-    } catch (err) {
-      console.error('Error creating design:', err);
-      alert('Failed to create design');
-    }
-  };
-
-  const handleStartEditDesign = (design) => {
-    setEditingDesignId(design.id);
-    setDesignForm({
-      name: design.name,
-      productHeader: design.productHeader,
-      productDescription: design.productDescription,
-      pricePerShirt: design.pricePerShirt
-    });
-  };
-
-  const handleSaveDesignEdit = async (designId) => {
-    try {
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
-      await updateDoc(designRef, {
-        name: designForm.name,
-        productHeader: designForm.productHeader,
-        productDescription: designForm.productDescription,
-        pricePerShirt: designForm.pricePerShirt,
-        updatedAt: Date.now()
-      });
-      setEditingDesignId(null);
-      setDesignForm(null);
-    } catch (err) {
-      console.error('Error updating design:', err);
-      alert('Failed to update design');
-    }
-  };
-
-  const handleDeleteDesign = async (designId) => {
-    const designOrders = orders.filter(o => o.designId === designId);
-    const confirmMessage = designOrders.length > 0
-      ? `⚠️ WARNING: This design has ${designOrders.length} order(s).\n\nDeleting this design will result in permanent loss of:\n- Design images and settings\n- All ${designOrders.length} associated order(s)\n- Order history and customer data\n\nThis action CANNOT be undone!\n\nAre you absolutely sure you want to delete "${designs.find(d => d.id === designId)?.name}"?`
-      : `Are you sure you want to delete "${designs.find(d => d.id === designId)?.name}"?`;
-    
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
-
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId));
-      if (selectedDesignId === designId) {
-        setSelectedDesignId(designs.find(d => d.id !== designId)?.id || null);
-      }
-      setDeleteConfirmDesignId(null);
-    } catch (err) {
-      console.error('Error deleting design:', err);
-      alert('Failed to delete design');
-    }
-  };
-
-  const toggleDesignCollapse = (designId) => {
-    setCollapsedDesigns(prev => ({
-      ...prev,
-      [designId]: prev[designId] === false ? true : false
-    }));
-  };
-
-  const handleMoveDesign = async (designId, direction) => {
-    try {
-      const currentIndex = designs.findIndex(d => d.id === designId);
-      if (currentIndex === -1) return;
-      
-      // Check bounds
-      if (direction === 'up' && currentIndex === 0) return;
-      if (direction === 'down' && currentIndex === designs.length - 1) return;
-      
-      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      const currentDesign = designs[currentIndex];
-      const targetDesign = designs[targetIndex];
-      
-      // If designs don't have order field, initialize them based on current index
-      const currentOrder = currentDesign.order !== undefined ? currentDesign.order : currentIndex;
-      const targetOrder = targetDesign.order !== undefined ? targetDesign.order : targetIndex;
-      
-      // Update both designs in Firestore - swap their order values
-      const batch = writeBatch(db);
-      
-      const currentRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', currentDesign.id);
-      batch.update(currentRef, { order: targetOrder, updatedAt: Date.now() });
-      
-      const targetRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', targetDesign.id);
-      batch.update(targetRef, { order: currentOrder, updatedAt: Date.now() });
-      
-      await batch.commit();
-    } catch (err) {
-      console.error('Error reordering designs:', err);
-      alert('Failed to reorder designs: ' + err.message);
-    }
-  };
-
-  const handleUpdateDesignField = (designId, field, value) => {
-    // Store edits locally, don't save to Firestore yet
-    setDesignEdits(prev => ({
-      ...prev,
-      [designId]: {
-        ...(prev[designId] || {}),
-        [field]: value
-      }
-    }));
-  };
-
-  const handleChangeDesignStatus = async (designId, newStatus) => {
-    try {
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
-      await updateDoc(designRef, {
-        status: newStatus,
-        updatedAt: Date.now()
-      });
-    } catch (err) {
-      console.error('Error updating design status:', err);
-      alert('Failed to update design status');
-    }
-  };
-
-  const saveAllDesignEdits = async () => {
-    const editedDesignIds = Object.keys(designEdits);
-    if (editedDesignIds.length === 0) return true;
-
-    try {
-      // Save all design edits to Firestore
-      const promises = editedDesignIds.map(designId => {
-        const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
-        return updateDoc(designRef, {
-          ...designEdits[designId],
-          updatedAt: Date.now()
-        });
-      });
-      
-      await Promise.all(promises);
-      setDesignEdits({}); // Clear pending edits
-      return true;
-    } catch (err) {
-      console.error('Error saving design edits:', err);
-      alert('Failed to save design changes');
-      return false;
-    }
-  };
-
-
   // --- Image Editor Actions ---
-
   const handleOpenImageEditor = (side, designId) => {
     setImageEditorModal({
       isOpen: true,
@@ -613,293 +168,41 @@ export default function App() {
   };
   
   const handleSaveImageEditor = async (data) => {
-    console.log('handleSaveImageEditor called with data:', data);
-    const { previewImage: newPreviewImage } = data;
     const side = imageEditorModal.side;
     const designId = imageEditorModal.designId;
-    
-    console.log('Side:', side);
-    console.log('Design ID:', designId);
-    console.log('Preview image length:', newPreviewImage?.length);
-    
-    if (!side || !designId) {
-      const error = new Error("No side or design specified");
-      console.error('Error:', error);
-      throw error;
-    }
-    
-    try {
-      // Update design document in Firestore
-      console.log('Updating Firestore...');
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
-      await updateDoc(designRef, {
-        [side]: newPreviewImage,
-        updatedAt: Date.now()
-      });
-      
-      console.log('Firestore update successful');
-      console.log('Save completed successfully');
-    } catch (err) {
-      console.error('Error in handleSaveImageEditor:', err);
-      console.error('Error details:', err.message, err.stack);
-      throw err;
-    }
+    await handleSaveImageEditorFromHook(data, side, designId);
   };
 
   // --- Multi-Design Order Submission ---
   const handleSubmitMultiDesignOrder = async () => {
-    if (!orderModalName.trim()) {
-      alert('Please enter your name');
-      return;
-    }
-
     setIsSubmitting(true);
     try {
-      const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
-      const timestamp = Date.now();
-      
-      // Create one order per design that has items
-      const orderPromises = [];
-      const orderDetails = [];
-      
-      for (const [designId, designSizes] of Object.entries(sizesByDesign)) {
-        const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
-        
-        if (totalItemsForDesign > 0) {
-          const design = designs.find(d => d.id === designId);
-          if (!design) continue;
-          
-          const orderData = {
-            name: orderModalName.trim(),
-            sizes: designSizes,
-            notes: orderModalNotes.trim(),
-            designId: designId,
-            designName: design.name,
-            pricePerShirt: design.pricePerShirt,
-            totalItems: totalItemsForDesign,
-            totalPrice: totalItemsForDesign * design.pricePerShirt,
-            timestamp: timestamp,
-            createdAt: timestamp,
-            isPaid: true // Automatically mark as paid since payment was processed via Square
-          };
-          
-          orderPromises.push(addDoc(ordersRef, orderData));
-          
-          // Store order details for email
-          orderDetails.push({
-            designName: design.name,
-            sizes: designSizes,
-            totalItems: totalItemsForDesign,
-            totalPrice: totalItemsForDesign * design.pricePerShirt
-          });
-        }
-      }
-      
-      await Promise.all(orderPromises);
-      
-      // Send email notification if EmailJS is configured
-      // Use environment variables if available, otherwise fall back to database config
-      const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
-      const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
-      const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
-      
-      if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
-        try {
-          // Format order details for email body
-          const orderSummary = orderDetails.map(order => {
-            const sizesText = SIZES
-              .filter(size => order.sizes[size] > 0)
-              .map(size => `${size}: ${order.sizes[size]}`)
-              .join(', ');
-            return `${order.designName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
-          }).join('\n');
-          
-          // Build email body
-          const emailBody = `Name: ${orderModalName.trim()}
-Total Items: ${totalItems}
-Total Price: $${totalPrice.toFixed(2)}
-Notes: ${orderModalNotes.trim() || 'None'}
-
-Order Details:
-${orderSummary}
-
-Order Date: ${new Date().toLocaleString()}`;
-          
-          const emailParams = {
-            to_email: globalConfig.notificationEmail,
-            email: globalConfig.notificationEmail,
-            subject: `New Order from ${orderModalName.trim()}`,
-            body: emailBody
-          };
-          
-          await emailjs.send(
-            emailjsServiceId,
-            emailjsTemplateId,
-            emailParams,
-            emailjsPublicKey
-          );
-        } catch (emailErr) {
-          console.error('Error sending email notification:', emailErr);
-          // Don't fail the order if email fails
-        }
-      }
+      await submitMultiDesignOrder({
+        orderModalName,
+        orderModalNotes,
+        sizesByDesign,
+        designs,
+        globalConfig,
+        totalItems,
+        totalPrice
+      });
       
       setOrderSubmitted(true);
       setIsSubmitting(false);
     } catch (err) {
       console.error('Error submitting orders:', err);
-      alert('Failed to submit order: ' + err.message);
+      alert(err.message || 'Failed to submit order');
       setIsSubmitting(false);
     }
   };
 
   const handleCloseOrderModal = () => {
     setShowOrderModal(false);
-    // Only clear form and cart if order was successfully submitted
     if (orderSubmitted) {
       setOrderSubmitted(false);
       setOrderModalName('');
       setOrderModalNotes('');
       setSizesByDesign({});
-    }
-    // If not submitted, keep selections so user can modify them
-  };
-
-  // Handle feedback submission for preview designs
-  const handleSubmitFeedback = async (designId) => {
-    const feedback = feedbackByDesign[designId] || '';
-    if (!feedback.trim()) {
-      alert('Please enter your feedback before submitting.');
-      return;
-    }
-
-    const design = designs.find(d => d.id === designId);
-    if (!design) return;
-
-    setSubmittingFeedback(prev => ({ ...prev, [designId]: true }));
-
-    try {
-      // Save feedback to Firestore
-      const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
-      const feedbackDoc = {
-        designId: designId,
-        designName: design.name,
-        feedback: feedback,
-        timestamp: Date.now(),
-        createdAt: new Date().toISOString()
-      };
-      
-      await addDoc(feedbackRef, feedbackDoc);
-
-      // Send notification email if EmailJS is configured
-      // Use environment variables if available, otherwise fall back to database config
-      const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
-      const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
-      const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
-      
-      if (emailjsServiceId && emailjsTemplateId &&
-          emailjsPublicKey && globalConfig.notificationEmail) {
-        const emailBody = `${feedback}
-
-Submitted: ${new Date().toLocaleString()}`;
-
-        const emailParams = {
-          to_email: globalConfig.notificationEmail,
-          email: globalConfig.notificationEmail,
-          subject: `New Feedback for ${design.name}`,
-          body: emailBody
-        };
-
-        await emailjs.send(
-          emailjsServiceId,
-          emailjsTemplateId,
-          emailParams,
-          emailjsPublicKey
-        );
-      }
-
-      // Mark as submitted
-      setSubmittedFeedback(prev => ({ ...prev, [designId]: true }));
-    } catch (err) {
-      console.error('Error submitting feedback:', err);
-      alert('Failed to submit feedback. Please try again.');
-    } finally {
-      setSubmittingFeedback(prev => ({ ...prev, [designId]: false }));
-    }
-  };
-
-  // Handle deleting feedback
-  const handleDeleteFeedback = async (feedbackId) => {
-    try {
-      const feedbackRef = doc(db, 'artifacts', appId, 'public', 'data', 'feedback', feedbackId);
-      await deleteDoc(feedbackRef);
-    } catch (err) {
-      console.error('Error deleting feedback:', err);
-      alert('Failed to delete feedback');
-    }
-  };
-  
-  // Handle uploading a new t-shirt background - opens editor modal
-  const handleTshirtBgUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    try {
-      const compressedBase64 = await compressImage(file);
-      const fileName = file.name.replace(/\.[^/.]+$/, "");
-      
-      // Open the background editor modal
-      setBackgroundEditorModal({
-        isOpen: true,
-        image: compressedBase64,
-        imageName: fileName
-      });
-    } catch (err) {
-      console.error("Background upload error", err);
-      alert("Failed to upload t-shirt background.");
-    }
-  };
-  
-  // Handle saving background from editor modal
-  const handleSaveBackground = async (data) => {
-    const { url, name } = data;
-    
-    try {
-      const newBg = {
-        id: `custom-${Date.now()}`,
-        name: name,
-        url: url
-      };
-      const updatedBackgrounds = [...tshirtBackgrounds, newBg];
-      setTshirtBackgrounds(updatedBackgrounds);
-      
-      // Save to Firestore
-      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
-      await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
-    } catch (err) {
-      console.error("Background save error", err);
-      throw err; // Re-throw so modal can show error
-    }
-  };
-  
-  // Close background editor modal
-  const handleCloseBackgroundEditor = () => {
-    setBackgroundEditorModal({
-      isOpen: false,
-      image: null,
-      imageName: ''
-    });
-  };
-  
-  // Handle deleting a custom t-shirt background
-  const handleDeleteTshirtBg = async (bgId) => {
-    if (bgId.startsWith('custom-')) {
-      const updatedBackgrounds = tshirtBackgrounds.filter(bg => bg.id !== bgId);
-      setTshirtBackgrounds(updatedBackgrounds);
-      
-      // Save to Firestore
-      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
-      await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
     }
   };
 
@@ -943,25 +246,10 @@ Submitted: ${new Date().toLocaleString()}`;
   }, [sizesByDesign, designs]);
 
 
-  const handleAdminLogin = async () => {
-    setAdminError('');
-
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const adminUid = result.user?.uid;
-
-      if (!adminUid || !ADMIN_UIDS.includes(adminUid)) {
-        await signOut(auth);
-        setAdminError('This Google account is not authorized for admin access.');
-        return;
-      }
-
-      setAdminAccessDenied(false);
+  const handleAdminLoginWrapper = async () => {
+    const success = await handleAdminLogin();
+    if (success) {
       setView('adminDashboard');
-    } catch (err) {
-      console.error('Admin sign-in error:', err);
-      setAdminError('Google sign-in failed. Please try again.');
     }
   };
 
@@ -974,70 +262,8 @@ Submitted: ${new Date().toLocaleString()}`;
       }
     }
 
-    try {
-      if (user && !user.isAnonymous) {
-        await signOut(auth);
-      }
-    } catch (err) {
-      console.error('Admin sign-out error:', err);
-    }
-
-    setAdminAccessDenied(false);
-    setAdminError('');
+    await handleAdminLogout();
     setView('store');
-    setOrderSuccess(false);
-  };
-
-  // Toggle paid status in Firestore
-  const handleTogglePaid = async (orderId, currentPaidStatus) => {
-    try {
-      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
-      await updateDoc(orderRef, {
-        isPaid: !currentPaidStatus
-      });
-    } catch (err) {
-      console.error("Error updating paid status:", err);
-      setAdminError("Failed to update paid status.");
-    }
-  };
-
-  const handleDeleteOrder = async (orderId) => {
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId));
-      setDeleteConfirmId(null);
-    } catch (err) {
-      console.error("Error deleting order:", err);
-      setAdminError("Failed to delete order.");
-    }
-  };
-
-  const handleStartEdit = (order) => {
-    setEditingOrderId(order.id);
-    setEditFormData({ 
-      name: order.name, 
-      sizes: { ...order.sizes }, 
-      brandRequest: order.brandRequest || '', 
-      notes: order.notes || '' 
-    });
-  };
-
-  const handleSaveEdit = async (orderId) => {
-    try {
-      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
-      const newTotalItems = SIZES.reduce((acc, size) => acc + (parseInt(editFormData.sizes[size]) || 0), 0);
-      await updateDoc(orderRef, {
-        name: editFormData.name,
-        sizes: editFormData.sizes,
-        brandRequest: editFormData.brandRequest,
-        notes: editFormData.notes,
-        totalItems: newTotalItems
-      });
-      setEditingOrderId(null);
-      setEditFormData(null);
-    } catch (err) {
-      console.error("Error updating order:", err);
-      setAdminError("Failed to update order.");
-    }
   };
 
   // --- Admin Calculations ---
@@ -1382,7 +608,7 @@ Submitted: ${new Date().toLocaleString()}`;
                 {adminError && <p className="text-red-600 text-sm text-center bg-red-50 p-2 rounded">{adminError}</p>}
                 <button
                   type="button"
-                  onClick={handleAdminLogin}
+                  onClick={handleAdminLoginWrapper}
                   className="w-full py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors"
                 >
                   Sign in with Google
@@ -1649,15 +875,12 @@ Submitted: ${new Date().toLocaleString()}`;
                           }}
                           onClick={(e) => e.stopPropagation()}
                           className={`px-3 py-1.5 text-sm font-medium rounded-lg border-2 transition-colors cursor-pointer ${
-                            design.status === 'preview'
-                              ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100'
-                              : design.status === 'closed'
+                            design.status === 'closed'
                               ? 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
                               : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                           }`}
                           title="Change Design Status"
                         >
-                          <option value="preview">Preview</option>
                           <option value="open">Open</option>
                           <option value="closed">Closed</option>
                         </select>
@@ -1995,12 +1218,10 @@ Submitted: ${new Date().toLocaleString()}`;
               <div className="flex justify-center gap-4 pt-2">
                 <button
                   onClick={async () => {
-                    // Discard all pending design edits
-                    setDesignEdits({});
-                    setAdminAccessDenied(false);
+                    // Cancel and return to store
                     setAdminError('');
                     setView('store');
-                    setOrderSuccess(false);
+                    setOrderSubmitted(false);
                   }}
                   className="flex-1 max-w-xs py-3 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >
@@ -2018,10 +1239,9 @@ Submitted: ${new Date().toLocaleString()}`;
                     const designsSaved = await saveAllDesignEdits();
                     if (!designsSaved) return;
                     
-                    setAdminAccessDenied(false);
                     setAdminError('');
                     setView('store');
-                    setOrderSuccess(false);
+                    setOrderSubmitted(false);
                   }}
                   className="flex-1 max-w-xs py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >

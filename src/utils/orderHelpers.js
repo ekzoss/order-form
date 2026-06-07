@@ -1,0 +1,157 @@
+import { collection, addDoc } from 'firebase/firestore';
+import { db, appId } from '../firebase';
+import { SIZES } from '../constants';
+import emailjs from '@emailjs/browser';
+
+export async function submitMultiDesignOrder({
+  orderModalName,
+  orderModalNotes,
+  sizesByDesign,
+  designs,
+  globalConfig,
+  totalItems,
+  totalPrice
+}) {
+  if (!orderModalName.trim()) {
+    throw new Error('Please enter your name');
+  }
+
+  const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
+  const timestamp = Date.now();
+  
+  // Create one order per design that has items
+  const orderPromises = [];
+  const orderDetails = [];
+  
+  for (const [designId, designSizes] of Object.entries(sizesByDesign)) {
+    const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
+    
+    if (totalItemsForDesign > 0) {
+      const design = designs.find(d => d.id === designId);
+      if (!design) continue;
+      
+      const orderData = {
+        name: orderModalName.trim(),
+        sizes: designSizes,
+        notes: orderModalNotes.trim(),
+        designId: designId,
+        designName: design.name,
+        pricePerShirt: design.pricePerShirt,
+        totalItems: totalItemsForDesign,
+        totalPrice: totalItemsForDesign * design.pricePerShirt,
+        timestamp: timestamp,
+        createdAt: timestamp,
+        isPaid: true
+      };
+      
+      orderPromises.push(addDoc(ordersRef, orderData));
+      
+      orderDetails.push({
+        designName: design.name,
+        sizes: designSizes,
+        totalItems: totalItemsForDesign,
+        totalPrice: totalItemsForDesign * design.pricePerShirt
+      });
+    }
+  }
+  
+  await Promise.all(orderPromises);
+  
+  // Send email notification if EmailJS is configured
+  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
+  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
+  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+  
+  if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
+    try {
+      const orderSummary = orderDetails.map(order => {
+        const sizesText = SIZES
+          .filter(size => order.sizes[size] > 0)
+          .map(size => `${size}: ${order.sizes[size]}`)
+          .join(', ');
+        return `${order.designName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
+      }).join('\n');
+      
+      const emailBody = `Name: ${orderModalName.trim()}
+Total Items: ${totalItems}
+Total Price: $${totalPrice.toFixed(2)}
+Notes: ${orderModalNotes.trim() || 'None'}
+
+Order Details:
+${orderSummary}
+
+Order Date: ${new Date().toLocaleString()}`;
+      
+      const emailParams = {
+        to_email: globalConfig.notificationEmail,
+        email: globalConfig.notificationEmail,
+        subject: `New Order from ${orderModalName.trim()}`,
+        body: emailBody
+      };
+      
+      await emailjs.send(
+        emailjsServiceId,
+        emailjsTemplateId,
+        emailParams,
+        emailjsPublicKey
+      );
+    } catch (emailErr) {
+      console.error('Error sending email notification:', emailErr);
+      // Don't fail the order if email fails
+    }
+  }
+}
+
+export async function submitFeedback({
+  designId,
+  feedback,
+  designs,
+  globalConfig
+}) {
+  if (!feedback.trim()) {
+    throw new Error('Please enter your feedback before submitting.');
+  }
+
+  const design = designs.find(d => d.id === designId);
+  if (!design) {
+    throw new Error('Design not found');
+  }
+
+  const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
+  const feedbackDoc = {
+    designId: designId,
+    designName: design.name,
+    feedback: feedback,
+    timestamp: Date.now(),
+    createdAt: new Date().toISOString()
+  };
+  
+  await addDoc(feedbackRef, feedbackDoc);
+
+  // Send notification email if EmailJS is configured
+  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
+  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
+  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+  
+  if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
+    const emailBody = `${feedback}
+
+Submitted: ${new Date().toLocaleString()}`;
+
+    const emailParams = {
+      to_email: globalConfig.notificationEmail,
+      email: globalConfig.notificationEmail,
+      subject: `New Feedback for ${design.name}`,
+      body: emailBody
+    };
+
+    await emailjs.send(
+      emailjsServiceId,
+      emailjsTemplateId,
+      emailParams,
+      emailjsPublicKey
+    );
+  }
+}
+
+// Made with Bob
