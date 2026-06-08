@@ -19,11 +19,10 @@ import {
   ArrowDown
 } from 'lucide-react';
 import ImageEditorModal from './ImageEditorModal';
-import BackgroundEditorModal from './BackgroundEditorModal';
 import OrderSubmissionModal from './OrderSubmissionModal';
 import AdminLogin from './components/AdminLogin';
 import GlobalSettingsForm from './components/GlobalSettingsForm';
-import { DEFAULT_TSHIRT_BACKGROUNDS, SIZES } from './constants';
+import { SIZES } from './constants';
 import { compressImage, compositeImageWithTshirt } from './imageUtils';
 import { db, appId } from './firebase';
 import PreviewRenderer from './components/PreviewRenderer';
@@ -31,7 +30,6 @@ import { useAuth } from './hooks/useAuth';
 import { useGlobalConfig } from './hooks/useGlobalConfig';
 import { useItems } from './hooks/useItems';
 import { useOrders } from './hooks/useOrders';
-import { useTshirtBackgrounds } from './hooks/useTshirtBackgrounds';
 import { useFeedback } from './hooks/useFeedback';
 import { submitMultiItemOrder } from './utils/orderHelpers';
 import { calculateProcessingFee } from './feeUtils';
@@ -91,15 +89,6 @@ export default function App() {
     handleDeleteOrder
   } = useOrders(user, view);
 
-  const {
-    tshirtBackgrounds,
-    backgroundEditorModal,
-    handleTshirtBgUpload,
-    handleSaveBackground,
-    handleCloseBackgroundEditor,
-    handleDeleteTshirtBg
-  } = useTshirtBackgrounds(user);
-
   // State for expandable orders in the All Orders section
   const [expandedOrderIds, setExpandedOrderIds] = useState({});
   
@@ -117,7 +106,6 @@ export default function App() {
   } = useFeedback(user, view);
 
   // UI State
-  const [tshirtBgLibraryExpanded, setTshirtBgLibraryExpanded] = useState(false);
   const [pageInfoExpanded, setPageInfoExpanded] = useState(true);
   const [zoomedImage, setZoomedImage] = useState(null);
   
@@ -438,9 +426,9 @@ export default function App() {
             return item?.previewImageMeta?.foregroundImages || null;
           })()}
           initialBackground={(() => {
-            if (!imageEditorModal.itemId) return DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+            if (!imageEditorModal.itemId) return null;
             const item = items.find(d => d.id === imageEditorModal.itemId);
-            return item?.previewImageMeta?.selectedBackground || DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+            return item?.previewImageMeta?.selectedBackground || null;
           })()}
           initialBackgroundType={(() => {
             if (!imageEditorModal.itemId) return 'solid';
@@ -457,19 +445,9 @@ export default function App() {
             const item = items.find(d => d.id === imageEditorModal.itemId);
             return item?.previewImageMeta?.customBackgroundImage || null;
           })()}
-          tshirtBackgrounds={tshirtBackgrounds}
           onSave={handleSaveImageEditor}
           compositeImageWithTshirt={compositeImageWithTshirt}
           compressImage={compressImage}
-        />
-
-        {/* Background Editor Modal */}
-        <BackgroundEditorModal
-          isOpen={backgroundEditorModal.isOpen}
-          onClose={handleCloseBackgroundEditor}
-          onSave={handleSaveBackground}
-          initialImage={backgroundEditorModal.image}
-          imageName={backgroundEditorModal.imageName}
         />
 
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
@@ -747,11 +725,6 @@ export default function App() {
                 handleSaveConfig={handleSaveConfig}
                 pageInfoExpanded={pageInfoExpanded}
                 setPageInfoExpanded={setPageInfoExpanded}
-                tshirtBgLibraryExpanded={tshirtBgLibraryExpanded}
-                setTshirtBgLibraryExpanded={setTshirtBgLibraryExpanded}
-                tshirtBackgrounds={tshirtBackgrounds}
-                handleTshirtBgUpload={handleTshirtBgUpload}
-                handleDeleteTshirtBg={handleDeleteTshirtBg}
               />
 
               {/* Items Section */}

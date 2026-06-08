@@ -1,17 +1,12 @@
 import React from 'react';
-import { ChevronUp, ChevronDown, Upload, Trash2 } from 'lucide-react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function GlobalSettingsForm({
   configForm,
   setConfigForm,
   handleSaveConfig,
   pageInfoExpanded,
-  setPageInfoExpanded,
-  tshirtBgLibraryExpanded,
-  setTshirtBgLibraryExpanded,
-  tshirtBackgrounds,
-  handleTshirtBgUpload,
-  handleDeleteTshirtBg
+  setPageInfoExpanded
 }) {
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -82,80 +77,6 @@ export default function GlobalSettingsForm({
                   Enter a flat fee ($1.50), percentage (3%), or combination (2.90% + $0.30) to cover Square transaction fees
                 </p>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* T-shirt Background Library Management - Collapsible */}
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => setTshirtBgLibraryExpanded(!tshirtBgLibraryExpanded)}
-            className="flex items-center gap-2 text-sm font-bold text-gray-900 hover:text-indigo-600 transition-colors"
-          >
-            {tshirtBgLibraryExpanded ? (
-              <ChevronUp className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
-            <span>T-shirt Background Library</span>
-          </button>
-          
-          {tshirtBgLibraryExpanded && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing items. These will be available for both front and back images.</p>
-              
-              {/* Solid Color Backgrounds - Quarter Size, Single Row */}
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
-                <div className="flex flex-wrap gap-2">
-                  {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
-                    <div key={bg.id} className="relative group">
-                      <div className="w-12 h-12 rounded border-2 border-gray-300 overflow-hidden">
-                        <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                      </div>
-                      <p className="text-[10px] text-gray-600 mt-0.5 text-center truncate w-12">{bg.name}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Custom/Graphical Backgrounds - Half Size Grid */}
-              {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
-                  <div className="grid grid-cols-6 md:grid-cols-8 gap-2 mb-3">
-                    {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
-                      <div key={bg.id} className="relative group">
-                        <div className="aspect-square rounded border-2 border-gray-300 overflow-hidden">
-                          <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                        </div>
-                        <p className="text-[10px] text-gray-600 mt-0.5 truncate">{bg.name}</p>
-                        {bg.id.startsWith('custom-') && (
-                          <button
-                            onClick={() => handleDeleteTshirtBg(bg.id)}
-                            className="absolute top-0.5 right-0.5 bg-red-500 text-white p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-2.5 h-2.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium border border-gray-300">
-                <Upload className="w-4 h-4" />
-                <span>Add T-shirt Background</span>
-                <input
-                  type="file"
-                  accept="image/jpeg, image/png"
-                  className="hidden"
-                  onChange={handleTshirtBgUpload}
-                />
-              </label>
             </div>
           )}
         </div>

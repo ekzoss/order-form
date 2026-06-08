@@ -126,7 +126,6 @@ const ImageEditorModal = ({
   initialBackgroundType,
   initialBackgroundColor,
   initialCustomBackgroundImage,
-  tshirtBackgrounds,
   onSave,
   compositeImageWithTshirt,
   compressImage
@@ -801,27 +800,6 @@ const ImageEditorModal = ({
                 </div>
               )}
 
-              {/* Custom/Graphical Backgrounds - Optional */}
-              {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
-                  <div className="grid grid-cols-6 gap-2">
-                    {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
-                      <div
-                        key={bg.id}
-                        onClick={() => setSelectedBackground(bg.url)}
-                        className={`relative cursor-pointer rounded border-2 overflow-hidden aspect-square ${
-                          selectedBackground === bg.url
-                            ? 'border-indigo-600 ring-2 ring-indigo-200'
-                            : 'border-gray-300 hover:border-indigo-400'
-                        }`}
-                      >
-                        <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
