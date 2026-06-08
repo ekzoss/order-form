@@ -1182,8 +1182,8 @@ export default function App() {
                                       }`}
                                     >
                                       <option value="open">Open</option>
-                                      <option value="completed">Done</option>
-                                      <option value="cancelled">Cancel</option>
+                                      <option value="completed">Completed</option>
+                                      <option value="cancelled">Cancelled</option>
                                     </select>
                                   </div>
                                 </div>

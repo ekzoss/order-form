@@ -622,7 +622,7 @@ const ImageEditorModal = ({
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('tl', e)}
                       onTouchStart={(e) => handleResizeTouchStart('tl', e)}
-                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform touch-none"
                       style={{
                         left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
                         top: `${selectedImage.position.y}%`,
@@ -633,7 +633,7 @@ const ImageEditorModal = ({
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('tr', e)}
                       onTouchStart={(e) => handleResizeTouchStart('tr', e)}
-                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform touch-none"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
                         top: `${selectedImage.position.y}%`,
@@ -644,7 +644,7 @@ const ImageEditorModal = ({
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('bl', e)}
                       onTouchStart={(e) => handleResizeTouchStart('bl', e)}
-                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform touch-none"
                       style={{
                         left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
                         top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
@@ -655,7 +655,7 @@ const ImageEditorModal = ({
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('br', e)}
                       onTouchStart={(e) => handleResizeTouchStart('br', e)}
-                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform touch-none"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
                         top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
