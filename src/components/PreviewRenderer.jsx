@@ -45,8 +45,7 @@ const PreviewRenderer = ({
             height: 'auto',
             maxWidth: 'none',
             maxHeight: 'none',
-            transform: 'translate(-50%, 0)',
-            zIndex: 10 + index
+            transform: 'translate(-50%, 0)'
           }}
         />
       ))}

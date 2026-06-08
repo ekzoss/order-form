@@ -538,7 +538,6 @@ export default function App() {
                   <div className="mb-6">
                     {/* Preview Image */}
                     <div className="max-w-2xl mx-auto">
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2 text-center">Preview</h3>
                       <div className="aspect-[4/3] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
                         {item.previewImageMeta?.foregroundImages?.length > 0 ? (
                           <>
@@ -603,23 +602,27 @@ export default function App() {
                       </div>
                     ) : (
                       // Size selection for open items
-                      <div className="grid grid-cols-5 gap-2">
-                        {SIZES.map(size => {
-                          const itemSizes = sizesByItem[item.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
-                          return (
-                            <div key={size} className="flex flex-col items-center">
-                              <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
-                              <input
-                                type="number"
-                                min="0"
-                                value={itemSizes[size] === 0 ? '' : itemSizes[size]}
-                                onChange={(e) => handleSizeChange(item.id, size, e.target.value)}
-                                placeholder="0"
-                                className="w-full text-center px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                              />
-                            </div>
-                          );
-                        })}
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Quantity to order:</h3>
+                        <div className="flex gap-1">
+                          {SIZES.map(size => {
+                            const itemSizes = sizesByItem[item.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+                            return (
+                              <div key={size} className="flex flex-col items-center">
+                                <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="99"
+                                  value={itemSizes[size] === 0 ? '' : itemSizes[size]}
+                                  onChange={(e) => handleSizeChange(item.id, size, e.target.value)}
+                                  placeholder="0"
+                                  className="w-12 text-center px-1 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
