@@ -1279,12 +1279,12 @@ export default function App() {
                                   
                                   {/* Subtotal */}
                                   <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                                    <span className="text-sm font-semibold text-gray-700">Total:</span>
+                                    <span className="text-sm font-semibold text-gray-700">Total (x{order.totalItems}):</span>
                                     <span className="text-sm font-semibold text-gray-900">${(order.totalPrice || 0).toFixed(2)}</span>
                                   </div>
                                   
-                                  {/* Processing Fee */}
-                                  {globalConfig?.processingFee && (
+                                  {/* Processing Fee - only for non-admin orders */}
+                                  {!order.isAdminOrder && globalConfig?.processingFee && (
                                     <div className="flex justify-between items-center pt-1">
                                       <span className="text-sm font-semibold text-gray-700">Processing Fee:</span>
                                       <span className="text-sm font-semibold text-gray-900">
@@ -1293,50 +1293,45 @@ export default function App() {
                                     </div>
                                   )}
                                   
-                                  {/* Total Charged */}
-                                  <div className="flex justify-between items-center pt-2 border-t-2 border-gray-300">
-                                    <span className="text-base font-bold text-gray-900">Total Charged:</span>
-                                    <span className="text-lg font-bold text-indigo-600">
-                                      ${(
-                                        (order.totalPrice || 0) +
-                                        (globalConfig?.processingFee ? calculateProcessingFee(globalConfig.processingFee, order.totalPrice || 0) : 0)
-                                      ).toFixed(2)}
-                                    </span>
-                                  </div>
+                                  {/* Total Charged or Admin Order indicator */}
+                                  {order.isAdminOrder ? (
+                                    <div className="flex justify-between items-center pt-2 border-t-2 border-gray-300">
+                                      <div>
+                                        <span className="text-base font-bold text-gray-900">Admin order</span>
+                                        <span className="text-sm text-gray-500 ml-2">(nothing charged)</span>
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (window.confirm('Delete this order?')) {
+                                            handleDeleteOrder(order.id);
+                                          }
+                                        }}
+                                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete Order"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex justify-between items-center pt-2 border-t-2 border-gray-300">
+                                      <span className="text-base font-bold text-gray-900">Total Charged:</span>
+                                      <span className="text-lg font-bold text-indigo-600">
+                                        ${(
+                                          (order.totalPrice || 0) +
+                                          (globalConfig?.processingFee ? calculateProcessingFee(globalConfig.processingFee, order.totalPrice || 0) : 0)
+                                        ).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
                                   
                                   {/* Payment/Transaction details */}
-                                  {order.paymentId ? (
+                                  {order.paymentId && (
                                     <div className="flex justify-between items-center pt-2">
                                       <span className="text-sm text-gray-600">Square Transaction ID:</span>
                                       <span className="text-sm text-gray-900 font-mono">{order.paymentId}</span>
                                     </div>
-                                  ) : order.isAdminOrder ? (
-                                    <div className="flex justify-between items-center pt-2">
-                                      <span className="text-sm text-gray-600">Payment:</span>
-                                      <span className="text-sm text-gray-900">Admin order — no payment processed</span>
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                                  <div className="text-sm text-gray-600">
-                                    <span className="font-semibold">Total Items:</span> {order.totalItems}
-                                  </div>
-                                  
-                                  <div className="flex items-center gap-3">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (window.confirm('Delete this order?')) {
-                                          handleDeleteOrder(order.id);
-                                        }
-                                      }}
-                                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Delete Order"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
+                                  )}
                                 </div>
                               </div>
                             )}
