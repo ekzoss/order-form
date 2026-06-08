@@ -69,9 +69,9 @@ export async function submitMultiDesignOrder({
   await addDoc(ordersRef, orderData);
   
   // Send email notification if EmailJS is configured
-  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
-  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
-  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
   
   if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
     try {
@@ -140,9 +140,9 @@ export async function submitFeedback({
   await addDoc(feedbackRef, feedbackDoc);
 
   // Send notification email if EmailJS is configured
-  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;
-  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig.emailjsTemplateId;
-  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig.emailjsPublicKey;
+  const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+  const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+  const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
   
   if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig.notificationEmail) {
     const emailBody = `${feedback}

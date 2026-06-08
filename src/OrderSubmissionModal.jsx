@@ -47,10 +47,10 @@ const OrderSubmissionModal = ({
     console.error('Payment error:', error);
     
     // Send notification email about payment failure
-    const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig?.emailjsServiceId;
-    const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || globalConfig?.emailjsTemplateId;
-    const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || globalConfig?.emailjsPublicKey;
-    
+    const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+    const emailjsTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+    const emailjsPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
     if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig?.notificationEmail) {
       try {
         // Build order details for email
