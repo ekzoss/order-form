@@ -1145,11 +1145,12 @@ export default function App() {
                                       if (!order.sizes?.[size] || order.sizes[size] === 0) return null;
                                       const design = designs.find(d => d.id === order.designId);
                                       const designName = design?.name || 'Unknown Design';
+                                      const pricePerShirt = design?.pricePerShirt || 0;
                                       
                                       return Array.from({ length: order.sizes[size] }, (_, index) => (
                                         <div key={`${size}-${index}`} className="flex justify-between items-center py-1 text-sm">
                                           <span className="text-gray-900">{designName} - {size}</span>
-                                          <span className="text-gray-900">${order.pricePerShirt?.toFixed(2) || '0.00'}</span>
+                                          <span className="text-gray-900">${pricePerShirt.toFixed(2)}</span>
                                         </div>
                                       ));
                                     })

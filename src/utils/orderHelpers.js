@@ -37,7 +37,6 @@ export async function submitMultiDesignOrder({
           designName: design.name,
           size: size,
           quantity: quantity,
-          pricePerShirt: design.pricePerShirt,
           subtotal: quantity * design.pricePerShirt
         });
       }
