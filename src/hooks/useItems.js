@@ -245,7 +245,7 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
   };
 
   const handleSaveImageEditor = async (data, side, itemId) => {
-    const { previewImage: newPreviewImage } = data;
+    const { previewImage: newPreviewImage, itemImage, selectedBackground, position, size } = data;
     
     if (!side || !itemId) {
       throw new Error("No side or item specified");
@@ -253,8 +253,18 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
     
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', itemId);
+      
+      // Store both the composite image and the composition metadata
+      const metadataField = side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
+      
       await updateDoc(itemRef, {
         [side]: newPreviewImage,
+        [metadataField]: {
+          itemImage,
+          selectedBackground,
+          position,
+          size
+        },
         updatedAt: Date.now()
       });
     } catch (err) {
