@@ -37,8 +37,8 @@ const OrderSubmissionModal = ({
   const handlePaymentSuccess = async (paymentData) => {
     console.log('Payment successful:', paymentData);
     setIsProcessingOrder(true);
-    // Submit the order after successful payment
-    await handleSubmitMultiDesignOrder();
+    // Submit the order after successful payment with payment ID
+    await handleSubmitMultiDesignOrder(paymentData.id);
     setPaymentCompleted(true);
     setIsProcessingOrder(false);
   };

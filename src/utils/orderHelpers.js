@@ -10,7 +10,8 @@ export async function submitMultiDesignOrder({
   designs,
   globalConfig,
   totalItems,
-  totalPrice
+  totalPrice,
+  paymentId = null
 }) {
   if (!orderModalName.trim()) {
     throw new Error('Please enter your name');
@@ -19,33 +20,32 @@ export async function submitMultiDesignOrder({
   const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
   const timestamp = Date.now();
   
-  // Create one order per design that has items
-  const orderPromises = [];
+  // Build items array with design+size quantities
+  const items = [];
   const orderDetails = [];
   
   for (const [designId, designSizes] of Object.entries(sizesByDesign)) {
-    const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
+    const design = designs.find(d => d.id === designId);
+    if (!design) continue;
     
+    // Add each size with quantity > 0 to items array
+    for (const size of SIZES) {
+      const quantity = designSizes[size] || 0;
+      if (quantity > 0) {
+        items.push({
+          designId: designId,
+          designName: design.name,
+          size: size,
+          quantity: quantity,
+          pricePerShirt: design.pricePerShirt,
+          subtotal: quantity * design.pricePerShirt
+        });
+      }
+    }
+    
+    // Build order details for email
+    const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
     if (totalItemsForDesign > 0) {
-      const design = designs.find(d => d.id === designId);
-      if (!design) continue;
-      
-      const orderData = {
-        name: orderModalName.trim(),
-        sizes: designSizes,
-        notes: orderModalNotes.trim(),
-        designId: designId,
-        designName: design.name,
-        pricePerShirt: design.pricePerShirt,
-        totalItems: totalItemsForDesign,
-        totalPrice: totalItemsForDesign * design.pricePerShirt,
-        timestamp: timestamp,
-        createdAt: timestamp,
-        isPaid: true
-      };
-      
-      orderPromises.push(addDoc(ordersRef, orderData));
-      
       orderDetails.push({
         designName: design.name,
         sizes: designSizes,
@@ -55,7 +55,20 @@ export async function submitMultiDesignOrder({
     }
   }
   
-  await Promise.all(orderPromises);
+  // Create single order with items array
+  const orderData = {
+    name: orderModalName.trim(),
+    notes: orderModalNotes.trim(),
+    items: items,
+    totalItems: totalItems,
+    totalPrice: totalPrice,
+    timestamp: timestamp,
+    createdAt: timestamp,
+    isPaid: true,
+    ...(paymentId && { paymentId: paymentId })
+  };
+  
+  await addDoc(ordersRef, orderData);
   
   // Send email notification if EmailJS is configured
   const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || globalConfig.emailjsServiceId;

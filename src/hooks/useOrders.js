@@ -43,7 +43,7 @@ export function useOrders(user, view) {
     setEditingOrderId(order.id);
     setEditFormData({
       name: order.name,
-      sizes: { ...order.sizes },
+      items: order.items ? [...order.items] : [],
       notes: order.notes || ''
     });
   };
@@ -51,18 +51,17 @@ export function useOrders(user, view) {
   const handleSaveEdit = async (orderId) => {
     try {
       const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
-      const totalItems = Object.values(editFormData.sizes).reduce((sum, qty) => sum + qty, 0);
       
-      // Get the order to find its price per shirt
-      const order = orders.find(o => o.id === orderId);
-      const pricePerShirt = order?.pricePerShirt || 0;
+      // Calculate totals from items array
+      const totalItems = editFormData.items.reduce((sum, item) => sum + item.quantity, 0);
+      const totalPrice = editFormData.items.reduce((sum, item) => sum + item.subtotal, 0);
       
       await updateDoc(orderRef, {
         name: editFormData.name,
-        sizes: editFormData.sizes,
+        items: editFormData.items,
         notes: editFormData.notes,
         totalItems: totalItems,
-        totalPrice: totalItems * pricePerShirt
+        totalPrice: totalPrice
       });
       
       setEditingOrderId(null);

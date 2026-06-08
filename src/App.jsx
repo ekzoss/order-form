@@ -33,6 +33,7 @@ import { useOrders } from './hooks/useOrders';
 import { useTshirtBackgrounds } from './hooks/useTshirtBackgrounds';
 import { useFeedback } from './hooks/useFeedback';
 import { submitMultiDesignOrder } from './utils/orderHelpers';
+import { calculateProcessingFee } from './feeUtils';
 
 export default function App() {
   const [view, setView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
@@ -98,6 +99,12 @@ export default function App() {
     handleCloseBackgroundEditor,
     handleDeleteTshirtBg
   } = useTshirtBackgrounds(user);
+
+  // State for expandable orders in the All Orders section
+  const [expandedOrderIds, setExpandedOrderIds] = useState({});
+  
+  // State for collapsible design orders sections
+  const [designOrdersExpanded, setDesignOrdersExpanded] = useState({});
 
   const {
     feedbackByDesign,
@@ -174,7 +181,7 @@ export default function App() {
   };
 
   // --- Multi-Design Order Submission ---
-  const handleSubmitMultiDesignOrder = async () => {
+  const handleSubmitMultiDesignOrder = async (paymentId = null) => {
     setIsSubmitting(true);
     try {
       await submitMultiDesignOrder({
@@ -184,7 +191,8 @@ export default function App() {
         designs,
         globalConfig,
         totalItems,
-        totalPrice
+        totalPrice,
+        paymentId
       });
       
       setOrderSubmitted(true);
@@ -268,17 +276,50 @@ export default function App() {
 
   // --- Admin Calculations ---
   
-  // Group orders by design
+  // Group orders by design (from items array)
   const ordersByDesign = useMemo(() => {
     const grouped = {};
     orders.forEach(order => {
-      const designId = order.designId || 'unknown';
-      if (!grouped[designId]) {
-        grouped[designId] = [];
+      if (order.items && Array.isArray(order.items)) {
+        // New structure: items array
+        order.items.forEach(item => {
+          const designId = item.designId || 'unknown';
+          if (!grouped[designId]) {
+            grouped[designId] = [];
+          }
+          // Check if this order is already in the design's list
+          if (!grouped[designId].find(o => o.id === order.id)) {
+            grouped[designId].push(order);
+          }
+        });
+      } else if (order.designId) {
+        // Legacy structure: single designId
+        const designId = order.designId;
+        if (!grouped[designId]) {
+          grouped[designId] = [];
+        }
+        grouped[designId].push(order);
       }
-      grouped[designId].push(order);
     });
     return grouped;
+  }, [orders]);
+
+  // Helper function to toggle order expansion in All Orders section
+  const toggleOrderExpansion = (orderId) => {
+    setExpandedOrderIds(prev => ({
+      ...prev,
+      [orderId]: !prev[orderId]
+    }));
+  };
+
+  // Calculate total paid amount across all orders
+  const totalRevenue = useMemo(() => {
+    return orders.reduce((sum, order) => {
+      if (order.isPaid) {
+        return sum + (order.totalPrice || 0);
+      }
+      return sum;
+    }, 0);
   }, [orders]);
 
   // Calculate totals per design
@@ -288,12 +329,23 @@ export default function App() {
     let revenue = 0;
     
     designOrders.forEach(order => {
-      SIZES.forEach(size => {
-        if (order.sizes && order.sizes[size]) {
-          totals[size] += order.sizes[size];
-        }
-      });
-      revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.pricePerShirt || 0);
+      if (order.items && Array.isArray(order.items)) {
+        // New structure: items array
+        order.items.forEach(item => {
+          if (item.designId === designId) {
+            totals[item.size] = (totals[item.size] || 0) + item.quantity;
+            revenue += item.subtotal || 0;
+          }
+        });
+      } else if (order.sizes && order.designId === designId) {
+        // Legacy structure
+        SIZES.forEach(size => {
+          if (order.sizes[size]) {
+            totals[size] += order.sizes[size];
+          }
+        });
+        revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.pricePerShirt || 0);
+      }
     });
     
     return {
@@ -302,15 +354,23 @@ export default function App() {
     };
   };
 
-  // Legacy: Overall totals (for backward compatibility)
+  // Overall totals (supports both new and legacy structure)
   const sizeTotals = useMemo(() => {
     const totals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
     orders.forEach(order => {
-      SIZES.forEach(size => {
-        if (order.sizes && order.sizes[size]) {
-          totals[size] += order.sizes[size];
-        }
-      });
+      if (order.items && Array.isArray(order.items)) {
+        // New structure: items array
+        order.items.forEach(item => {
+          totals[item.size] = (totals[item.size] || 0) + item.quantity;
+        });
+      } else if (order.sizes) {
+        // Legacy structure
+        SIZES.forEach(size => {
+          if (order.sizes[size]) {
+            totals[size] += order.sizes[size];
+          }
+        });
+      }
     });
     return totals;
   }, [orders]);
@@ -694,7 +754,6 @@ export default function App() {
                       <div className="flex items-center gap-3">
                         {isCollapsed ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronUp className="w-5 h-5 text-gray-400" />}
                         <h3 className="text-lg font-bold text-gray-900">{design.name}</h3>
-                        <span className="text-sm text-gray-500">({designOrders.length} orders)</span>
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Reorder buttons */}
@@ -894,135 +953,64 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Orders Table */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm text-gray-600">
-                        <thead className="bg-gray-50 text-gray-700 border-b border-gray-200 font-semibold uppercase text-xs">
-                          <tr>
-                            <th className="px-6 py-4">Date</th>
-                            <th className="px-6 py-4">Name</th>
-                            <th className="px-4 py-4 text-center border-l border-gray-200 bg-gray-50/50">S</th>
-                            <th className="px-4 py-4 text-center bg-gray-50/50">M</th>
-                            <th className="px-4 py-4 text-center bg-gray-50/50">L</th>
-                            <th className="px-4 py-4 text-center bg-gray-50/50">XL</th>
-                            <th className="px-4 py-4 text-center border-r border-gray-200 bg-gray-50/50">XXL</th>
-                            <th className="px-6 py-4">Notes</th>
-                            <th className="px-6 py-4 text-right">Items</th>
-                            <th className="px-6 py-4 text-center border-l border-gray-200">Paid</th>
-                            <th className="px-6 py-4 text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {designOrders.length === 0 ? (
-                            <tr>
-                              <td colSpan="12" className="px-6 py-12 text-center text-gray-500 text-base">
-                                No orders have been placed for this design yet.
-                              </td>
-                            </tr>
-                          ) : (
-                            designOrders.map((order) => {
-                          const isEditing = editingOrderId === order.id;
-                          return (
-                          <tr 
-                            key={order.id} 
-                            className={`transition-colors ${order.isPaid ? 'bg-green-50/30' : 'hover:bg-gray-50/50'}`}
-                          >
-                            <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                              {new Date(order.timestamp).toLocaleDateString()} <br/>
-                              {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                            </td>
-                            <td className="px-6 py-4 font-medium text-gray-900">
-                              {isEditing ? (
-                                <input 
-                                  type="text" 
-                                  value={editFormData.name} 
-                                  onChange={e => setEditFormData({...editFormData, name: e.target.value})}
-                                  className="w-full px-2 py-1 border border-indigo-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                />
-                              ) : order.name}
-                            </td>
-                            
-                            {SIZES.map(size => (
-                              <td key={size} className={`px-2 py-4 text-center ${size === 'S' ? 'border-l border-gray-100' : ''} ${size === 'XXL' ? 'border-r border-gray-100' : ''} ${order.sizes?.[size] > 0 ? 'font-bold text-indigo-600 bg-indigo-50/20' : 'text-gray-300'}`}>
-                                {isEditing ? (
-                                  <input 
-                                    type="number" 
-                                    min="0"
-                                    value={editFormData.sizes[size] === 0 ? '' : editFormData.sizes[size]} 
-                                    onChange={e => setEditFormData({
-                                      ...editFormData, 
-                                      sizes: { ...editFormData.sizes, [size]: Math.max(0, parseInt(e.target.value) || 0) }
-                                    })}
-                                    className="w-10 px-1 py-1 border border-indigo-300 rounded text-center text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                    placeholder="0"
-                                  />
-                                ) : (order.sizes?.[size] || 0)}
-                              </td>
-                            ))}
-                            
-                            <td className="px-6 py-4 text-gray-600 text-xs max-w-[150px]">
-                              {isEditing ? (
-                                <input 
-                                  type="text" 
-                                  value={editFormData.notes} 
-                                  onChange={e => setEditFormData({...editFormData, notes: e.target.value})}
-                                  className="w-full px-2 py-1 border border-indigo-300 rounded text-sm focus:outline-none"
-                                />
-                              ) : (
-                                <div className="truncate" title={order.notes}>{order.notes || '-'}</div>
-                              )}
-                            </td>
-                            
-                            <td className="px-6 py-4 text-right font-bold text-gray-900">
-                              {isEditing ? SIZES.reduce((acc, size) => acc + (parseInt(editFormData.sizes[size]) || 0), 0) : order.totalItems}
-                            </td>
-                            
-                            <td className="px-6 py-4 text-center border-l border-gray-100">
-                              <input
-                                type="checkbox"
-                                checked={!!order.isPaid}
-                                onChange={() => handleTogglePaid(order.id, !!order.isPaid)}
-                                disabled={isEditing}
-                                className="w-5 h-5 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer disabled:opacity-50"
-                                title={order.isPaid ? "Mark as unpaid" : "Mark as paid"}
-                              />
-                            </td>
-
-                            <td className="px-6 py-4 text-center">
-                              {deleteConfirmId === order.id ? (
-                                <div className="flex items-center justify-center gap-2 flex-col">
-                                  <span className="text-xs text-red-600 font-bold">Delete?</span>
-                                  <div className="flex gap-2">
-                                    <button onClick={() => handleDeleteOrder(order.id)} className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">Yes</button>
-                                    <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1 bg-gray-200 text-gray-800 text-xs rounded hover:bg-gray-300 transition-colors">No</button>
-                                  </div>
-                                </div>
-                              ) : isEditing ? (
-                                <div className="flex items-center justify-center gap-3">
-                                  <button onClick={() => handleSaveEdit(order.id)} className="text-green-600 hover:text-green-800 transition-colors" title="Save Changes">
-                                    <Save className="w-5 h-5" />
-                                  </button>
-                                  <button onClick={() => { setEditingOrderId(null); setEditFormData(null); }} className="text-gray-400 hover:text-gray-600 transition-colors" title="Cancel">
-                                    <X className="w-5 h-5" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center gap-3">
-                                  <button onClick={() => handleStartEdit(order)} className="text-indigo-500 hover:text-indigo-800 transition-colors" title="Edit Order">
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete Order">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                            )})
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                    {/* Orders Details - Collapsible */}
+                    {designOrders.length > 0 && (
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => setDesignOrdersExpanded(prev => ({
+                            ...prev,
+                            [design.id]: !prev[design.id]
+                          }))}
+                          className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          <span className="text-sm font-semibold text-gray-700">Details</span>
+                          {designOrdersExpanded[design.id] ?
+                            <ChevronUp className="w-5 h-5 text-gray-400" /> :
+                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                          }
+                        </button>
+                        
+                        {designOrdersExpanded[design.id] && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Name</th>
+                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Notes</th>
+                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Sizes</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {designOrders.map((order) => {
+                                  // Build sizes string from items array for this design
+                                  let sizesStr = '';
+                                  if (order.items && Array.isArray(order.items)) {
+                                    const designItems = order.items.filter(item => item.designId === design.id);
+                                    sizesStr = designItems
+                                      .map(item => `${item.size}: ${item.quantity}`)
+                                      .join(', ');
+                                  } else if (order.sizes) {
+                                    // Legacy structure
+                                    sizesStr = SIZES
+                                      .filter(size => order.sizes?.[size] > 0)
+                                      .map(size => `${size}: ${order.sizes[size]}`)
+                                      .join(', ');
+                                  }
+                                  
+                                  return (
+                                    <tr key={order.id} className="hover:bg-gray-50">
+                                      <td className="px-4 py-2 text-gray-900">{order.name}</td>
+                                      <td className="px-4 py-2 text-gray-600">{order.notes || '-'}</td>
+                                      <td className="px-4 py-2 text-gray-900">{sizesStr}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Feedback Section */}
                     {(() => {
@@ -1079,6 +1067,182 @@ export default function App() {
               </div>
             );
           })}
+
+              {/* All Orders Section */}
+              <div className="mt-12 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">All Orders</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {orders.length} total orders • ${totalRevenue.toFixed(2)} paid
+                    </p>
+                  </div>
+                </div>
+
+                {orders.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    No orders have been placed yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {orders
+                      .sort((a, b) => b.timestamp - a.timestamp)
+                      .map((order) => {
+                        const isExpanded = expandedOrderIds[order.id];
+                        
+                        return (
+                          <div
+                            key={order.id}
+                            className={`border border-gray-200 rounded-lg overflow-hidden transition-colors ${
+                              order.isPaid ? 'bg-green-50/30' : 'bg-white'
+                            }`}
+                          >
+                            {/* Order Summary Row */}
+                            <div
+                              className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                              onClick={() => toggleOrderExpansion(order.id)}
+                            >
+                              <div className="flex items-center gap-4 flex-1">
+                                <button className="text-gray-400 hover:text-gray-600">
+                                  {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                </button>
+                                
+                                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                                  <div className="text-xs text-gray-500">
+                                    {new Date(order.timestamp).toLocaleDateString()}<br/>
+                                    {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                  </div>
+                                  
+                                  <div className="font-medium text-gray-900">
+                                    {order.name}
+                                  </div>
+                                  
+                                  <div className="text-sm text-gray-600 truncate" title={order.notes}>
+                                    {order.notes || '-'}
+                                  </div>
+                                  
+                                  <div className="flex items-center justify-end gap-4">
+                                    <span className={`font-bold ${order.isPaid ? 'text-green-600' : 'text-gray-900'}`}>
+                                      ${(order.totalPrice || 0).toFixed(2)}
+                                    </span>
+                                    {order.isPaid && (
+                                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                                        Paid
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded Order Details */}
+                            {isExpanded && (
+                              <div className="border-t border-gray-200 bg-gray-50/50 p-4">
+                                <div className="space-y-2 mb-4">
+                                  <h4 className="font-semibold text-gray-700 text-sm mb-2">Order Details:</h4>
+                                  
+                                  {/* Line items */}
+                                  {order.items && Array.isArray(order.items) ? (
+                                    // New structure: items array
+                                    order.items.map((item, index) => (
+                                      <div key={index} className="flex justify-between items-center py-1 text-sm">
+                                        <span className="text-gray-900">{item.designName} - {item.size} (x{item.quantity})</span>
+                                        <span className="text-gray-900">${item.subtotal?.toFixed(2) || '0.00'}</span>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    // Legacy structure: single design with sizes
+                                    SIZES.map(size => {
+                                      if (!order.sizes?.[size] || order.sizes[size] === 0) return null;
+                                      const design = designs.find(d => d.id === order.designId);
+                                      const designName = design?.name || 'Unknown Design';
+                                      
+                                      return Array.from({ length: order.sizes[size] }, (_, index) => (
+                                        <div key={`${size}-${index}`} className="flex justify-between items-center py-1 text-sm">
+                                          <span className="text-gray-900">{designName} - {size}</span>
+                                          <span className="text-gray-900">${order.pricePerShirt?.toFixed(2) || '0.00'}</span>
+                                        </div>
+                                      ));
+                                    })
+                                  )}
+                                  
+                                  {/* Subtotal */}
+                                  <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                                    <span className="text-sm font-semibold text-gray-700">Total:</span>
+                                    <span className="text-sm font-semibold text-gray-900">${(order.totalPrice || 0).toFixed(2)}</span>
+                                  </div>
+                                  
+                                  {/* Processing Fee */}
+                                  {globalConfig?.processingFee && (
+                                    <div className="flex justify-between items-center pt-1">
+                                      <span className="text-sm font-semibold text-gray-700">Processing Fee:</span>
+                                      <span className="text-sm font-semibold text-gray-900">
+                                        ${calculateProcessingFee(globalConfig.processingFee, order.totalPrice || 0).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Total Charged */}
+                                  <div className="flex justify-between items-center pt-2 border-t-2 border-gray-300">
+                                    <span className="text-base font-bold text-gray-900">Total Charged:</span>
+                                    <span className="text-lg font-bold text-indigo-600">
+                                      ${(
+                                        (order.totalPrice || 0) +
+                                        (globalConfig?.processingFee ? calculateProcessingFee(globalConfig.processingFee, order.totalPrice || 0) : 0)
+                                      ).toFixed(2)}
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Payment/Transaction ID if available */}
+                                  {order.paymentId && (
+                                    <div className="flex justify-between items-center pt-2">
+                                      <span className="text-sm text-gray-600">Square Transaction ID:</span>
+                                      <span className="text-sm text-gray-900 font-mono">{order.paymentId}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                                  <div className="text-sm text-gray-600">
+                                    <span className="font-semibold">Total Items:</span> {order.totalItems}
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-3">
+                                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!order.isPaid}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          handleTogglePaid(order.id, !!order.isPaid);
+                                        }}
+                                        className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                                      />
+                                      <span className="font-medium">Paid</span>
+                                    </label>
+                                    
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (window.confirm('Delete this order?')) {
+                                          handleDeleteOrder(order.id);
+                                        }
+                                      }}
+                                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                      title="Delete Order"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-center gap-4 pt-2">
                 <button
@@ -1161,12 +1325,24 @@ export default function App() {
               {/* Right Side: Sizes and Notes */}
               <div className="w-1/2 pl-8 flex flex-col justify-center h-full">
                 <div className="flex flex-wrap gap-6">
-                  {SIZES.map(size => order.sizes?.[size] > 0 ? (
-                    <div key={size} className="flex flex-col items-center border-2 border-black rounded-lg p-4 min-w-[100px]">
-                      <span className="text-2xl font-bold text-gray-500 border-b-2 border-black w-full text-center pb-2 mb-2">{size}</span>
-                      <span className="text-5xl font-black">{order.sizes[size]}</span>
-                    </div>
-                  ) : null)}
+                  {(() => {
+                    // Calculate size totals from items array or use legacy sizes
+                    const sizeTotals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+                    if (order.items && Array.isArray(order.items)) {
+                      order.items.forEach(item => {
+                        sizeTotals[item.size] = (sizeTotals[item.size] || 0) + item.quantity;
+                      });
+                    } else if (order.sizes) {
+                      Object.assign(sizeTotals, order.sizes);
+                    }
+                    
+                    return SIZES.map(size => sizeTotals[size] > 0 ? (
+                      <div key={size} className="flex flex-col items-center border-2 border-black rounded-lg p-4 min-w-[100px]">
+                        <span className="text-2xl font-bold text-gray-500 border-b-2 border-black w-full text-center pb-2 mb-2">{size}</span>
+                        <span className="text-5xl font-black">{sizeTotals[size]}</span>
+                      </div>
+                    ) : null);
+                  })()}
                 </div>
                 {order.notes && (
                   <div className="mt-8 text-xl text-gray-700 italic border-l-4 border-gray-400 pl-4 py-2">

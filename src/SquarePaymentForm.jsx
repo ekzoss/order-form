@@ -13,13 +13,55 @@ const SquarePaymentForm = ({ amount, onPaymentSuccess, onPaymentError, customerN
     let cardInstance = null;
     let mounted = true;
 
-    const initializeSquare = async () => {
-      if (!window.Square) {
-        setError('Square SDK failed to load');
-        return;
-      }
+    const loadSquareSDK = () => {
+      return new Promise((resolve, reject) => {
+        // Check if Square SDK is already loaded
+        if (window.Square) {
+          resolve();
+          return;
+        }
 
+        // Get credentials to determine environment
+        const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID;
+        if (!appId) {
+          reject(new Error('Missing Square Application ID'));
+          return;
+        }
+
+        // Determine environment based on Application ID
+        const isSandbox = appId.startsWith('sandbox-');
+        const sdkUrl = isSandbox
+          ? 'https://sandbox.web.squarecdn.com/v1/square.js'
+          : 'https://web.squarecdn.com/v1/square.js';
+
+        console.log('Loading Square SDK:', {
+          environment: isSandbox ? 'sandbox' : 'production',
+          url: sdkUrl
+        });
+
+        // Create and load the script
+        const script = document.createElement('script');
+        script.src = sdkUrl;
+        script.type = 'text/javascript';
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Failed to load Square SDK'));
+        document.head.appendChild(script);
+      });
+    };
+
+    const initializeSquare = async () => {
       try {
+        // Load the Square SDK first
+        await loadSquareSDK();
+
+        if (!mounted) return;
+
+        if (!window.Square) {
+          setError('Square SDK failed to load');
+          return;
+        }
+
         // Get credentials
         const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID;
         const locationId = import.meta.env.VITE_SQUARE_LOCATION_ID;
