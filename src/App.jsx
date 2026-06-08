@@ -123,7 +123,6 @@ export default function App() {
   // Image Editor Modal State
   const [imageEditorModal, setImageEditorModal] = useState({
     isOpen: false,
-    side: null,
     itemId: null
   });
 
@@ -158,10 +157,9 @@ export default function App() {
   };
 
   // --- Image Editor Actions ---
-  const handleOpenImageEditor = (side, itemId) => {
+  const handleOpenImageEditor = (itemId) => {
     setImageEditorModal({
       isOpen: true,
-      side: side,
       itemId: itemId
     });
   };
@@ -169,15 +167,13 @@ export default function App() {
   const handleCloseImageEditor = () => {
     setImageEditorModal({
       isOpen: false,
-      side: null,
       itemId: null
     });
   };
   
   const handleSaveImageEditor = async (data) => {
-    const side = imageEditorModal.side;
     const itemId = imageEditorModal.itemId;
-    await handleSaveImageEditorFromHook(data, side, itemId);
+    await handleSaveImageEditorFromHook(data, itemId);
   };
 
   // --- Multi-item Order Submission ---
@@ -427,30 +423,15 @@ export default function App() {
         <ImageEditorModal
           isOpen={imageEditorModal.isOpen}
           onClose={handleCloseImageEditor}
-          side={imageEditorModal.side}
-          initialItemImage={(() => {
-            if (!imageEditorModal.itemId || !imageEditorModal.side) return null;
+          initialForegroundImages={(() => {
+            if (!imageEditorModal.itemId) return null;
             const item = items.find(d => d.id === imageEditorModal.itemId);
-            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
-            return item?.[metadataField]?.itemImage || null;
+            return item?.previewImageMeta?.foregroundImages || null;
           })()}
           initialBackground={(() => {
-            if (!imageEditorModal.itemId || !imageEditorModal.side) return DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+            if (!imageEditorModal.itemId) return DEFAULT_TSHIRT_BACKGROUNDS[0].url;
             const item = items.find(d => d.id === imageEditorModal.itemId);
-            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
-            return item?.[metadataField]?.selectedBackground || DEFAULT_TSHIRT_BACKGROUNDS[0].url;
-          })()}
-          initialPosition={(() => {
-            if (!imageEditorModal.itemId || !imageEditorModal.side) return { x: 50, y: 28 };
-            const item = items.find(d => d.id === imageEditorModal.itemId);
-            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
-            return item?.[metadataField]?.position || { x: 50, y: 28 };
-          })()}
-          initialSize={(() => {
-            if (!imageEditorModal.itemId || !imageEditorModal.side) return 45;
-            const item = items.find(d => d.id === imageEditorModal.itemId);
-            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
-            return item?.[metadataField]?.size || 45;
+            return item?.previewImageMeta?.selectedBackground || DEFAULT_TSHIRT_BACKGROUNDS[0].url;
           })()}
           tshirtBackgrounds={tshirtBackgrounds}
           onSave={handleSaveImageEditor}
@@ -547,50 +528,21 @@ export default function App() {
                   )}
 
                   {/* Front and Back Images Side by Side */}
-                  <div className="grid md:grid-cols-2 gap-4 mb-6">
-                    {/* Front Image */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Front</h3>
-                      <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
-                        {item.frontImage ? (
+                  <div className="mb-6">
+                    {/* Preview Image */}
+                    <div className="max-w-2xl mx-auto">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2 text-center">Preview</h3>
+                      <div className="aspect-[4/3] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
+                        {item.previewImage ? (
                           <>
                             <img
-                              src={item.frontImage}
-                              alt="Front view"
+                              src={item.previewImage}
+                              alt="Item preview"
                               className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                              onClick={() => setZoomedImage(item.frontImage)}
+                              onClick={() => setZoomedImage(item.previewImage)}
                             />
                             <button
-                              onClick={() => setZoomedImage(item.frontImage)}
-                              className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
-                              title="Zoom Image"
-                            >
-                              <ZoomIn className="w-4 h-4" />
-                            </button>
-                          </>
-                        ) : (
-                          <div className="text-gray-400 flex flex-col items-center">
-                            <ImageIcon className="w-8 h-8 mb-1 opacity-50" />
-                            <span className="text-xs">No image</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Back Image */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Back</h3>
-                      <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
-                        {item.backImage ? (
-                          <>
-                            <img
-                              src={item.backImage}
-                              alt="Back view"
-                              className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                              onClick={() => setZoomedImage(item.backImage)}
-                            />
-                            <button
-                              onClick={() => setZoomedImage(item.backImage)}
+                              onClick={() => setZoomedImage(item.previewImage)}
                               className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
                               title="Zoom Image"
                             >
@@ -914,65 +866,32 @@ export default function App() {
                           </div>
                         </div>
                     
-                    {/* Shirt item Previews - 50% smaller */}
-                    <div className="grid md:grid-cols-2 gap-4 mb-6">
-                      {/* Front Image Preview */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Front Image</label>
-                        <div className="w-full max-w-[200px] mx-auto">
-                          <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                            {item.frontImage ? (
-                              <img src={item.frontImage} alt="front" className="w-full h-full object-contain" />
-                            ) : (
-                              <ImageIcon className="w-12 h-12 text-gray-400" />
-                            )}
+                    {/* Preview Image */}
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2 text-center">Preview Image</label>
+                      <div className="w-full max-w-[500px] mx-auto">
+                        <div className="relative group aspect-[4/3] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
+                          {item.previewImage ? (
+                            <img src={item.previewImage} alt="preview" className="w-full h-full object-contain" />
+                          ) : (
+                            <ImageIcon className="w-12 h-12 text-gray-400" />
+                          )}
+                          <button
+                            onClick={() => handleOpenImageEditor(item.id)}
+                            className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                            title="Modify Preview Image"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          {item.previewImage && (
                             <button
-                              onClick={() => handleOpenImageEditor('frontImage', item.id)}
-                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                              title="Modify Front Image"
+                              onClick={() => setZoomedImage(item.previewImage)}
+                              className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                              title="Zoom Image"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              <ZoomIn className="w-3 h-3" />
                             </button>
-                            {item.frontImage && (
-                              <button
-                                onClick={() => setZoomedImage(item.frontImage)}
-                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                                title="Zoom Image"
-                              >
-                                <ZoomIn className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Back Image Preview */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Back Image</label>
-                        <div className="w-full max-w-[200px] mx-auto">
-                          <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                            {item.backImage ? (
-                              <img src={item.backImage} alt="back" className="w-full h-full object-contain" />
-                            ) : (
-                              <ImageIcon className="w-12 h-12 text-gray-400" />
-                            )}
-                            <button
-                              onClick={() => handleOpenImageEditor('backImage', item.id)}
-                              className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                              title="Modify Back Image"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                            {item.backImage && (
-                              <button
-                                onClick={() => setZoomedImage(item.backImage)}
-                                className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                                title="Zoom Image"
-                              >
-                                <ZoomIn className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -78,8 +78,7 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
         productHeader: defaultName,
         productDescription: '',
         price: 0,
-        frontImage: null,
-        backImage: null,
+        previewImage: null,
         status: 'open',
         order: maxOrder + 1,
         createdAt: Date.now(),
@@ -244,26 +243,26 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
     }
   };
 
-  const handleSaveImageEditor = async (data, side, itemId) => {
-    const { previewImage: newPreviewImage, itemImage, selectedBackground, position, size } = data;
+  const handleSaveImageEditor = async (data, itemId) => {
+    const {
+      previewImage: newPreviewImage,
+      selectedBackground,
+      foregroundImages
+    } = data;
     
-    if (!side || !itemId) {
-      throw new Error("No side or item specified");
+    if (!itemId) {
+      throw new Error("No item specified");
     }
     
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', itemId);
       
       // Store both the composite image and the composition metadata
-      const metadataField = side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
-      
       await updateDoc(itemRef, {
-        [side]: newPreviewImage,
-        [metadataField]: {
-          itemImage,
+        previewImage: newPreviewImage,
+        previewImageMeta: {
           selectedBackground,
-          position,
-          size
+          foregroundImages
         },
         updatedAt: Date.now()
       });

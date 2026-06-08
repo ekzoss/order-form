@@ -40,15 +40,13 @@ export const compressImage = (file) => {
 };
 
 export const compositeImageWithTshirt = (
-  itemImage,
-  tshirtBackgroundUrl,
-  position = { x: 50, y: 28 },
-  sizePercent = 45
+  foregroundImages,
+  tshirtBackgroundUrl
 ) => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 1000;
+    canvas.width = 1200;
+    canvas.height = 900;
     const ctx = canvas.getContext('2d', {
       alpha: true,
       willReadFrequently: false
@@ -61,31 +59,42 @@ export const compositeImageWithTshirt = (
     tshirtImg.onload = () => {
       ctx.drawImage(tshirtImg, 0, 0, canvas.width, canvas.height);
 
-      const itemImg = new window.Image();
-      itemImg.crossOrigin = 'anonymous';
-      itemImg.src = itemImage;
+      // Load and draw all foreground images
+      const loadPromises = foregroundImages.map((imgData) => {
+        return new Promise((resolveImg, rejectImg) => {
+          const itemImg = new window.Image();
+          itemImg.crossOrigin = 'anonymous';
+          itemImg.src = imgData.image;
 
-      itemImg.onload = () => {
-        const maxItemWidth = canvas.width * (sizePercent / 100);
-        let itemWidth = maxItemWidth;
-        const itemHeight = (itemImg.height / itemImg.width) * itemWidth;
+          itemImg.onload = () => {
+            const maxItemWidth = canvas.width * (imgData.size / 100);
+            let itemWidth = maxItemWidth;
+            const itemHeight = (itemImg.height / itemImg.width) * itemWidth;
 
-        const x = (canvas.width * (position.x / 100)) - (itemWidth / 2);
-        const y = canvas.height * (position.y / 100);
+            const x = (canvas.width * (imgData.position.x / 100)) - (itemWidth / 2);
+            const y = canvas.height * (imgData.position.y / 100);
 
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(itemImg, x, y, itemWidth, itemHeight);
-        ctx.restore();
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.drawImage(itemImg, x, y, itemWidth, itemHeight);
+            ctx.restore();
 
-        try {
-          resolve(canvas.toDataURL('image/png', 1.0));
-        } catch (err) {
-          reject(new Error(`Failed to export composite image: ${err.message}`));
-        }
-      };
+            resolveImg();
+          };
 
-      itemImg.onerror = (err) => reject(new Error(`Failed to load item image: ${err}`));
+          itemImg.onerror = (err) => rejectImg(new Error(`Failed to load item image: ${err}`));
+        });
+      });
+
+      Promise.all(loadPromises)
+        .then(() => {
+          try {
+            resolve(canvas.toDataURL('image/png', 1.0));
+          } catch (err) {
+            reject(new Error(`Failed to export composite image: ${err.message}`));
+          }
+        })
+        .catch(reject);
     };
 
     tshirtImg.onerror = (err) => reject(new Error(`Failed to load t-shirt template: ${err}`));

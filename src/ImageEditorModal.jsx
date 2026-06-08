@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Save, Upload, Image as ImageIcon } from 'lucide-react';
+import { X, Save, Upload, Image as ImageIcon, Plus } from 'lucide-react';
 // Helper function to compress a base64 image
 const compressBase64Image = (base64String, maxWidth = 800, maxHeight = 1000, quality = 0.7) => {
   return new Promise((resolve, reject) => {
@@ -42,37 +42,43 @@ const compressBase64Image = (base64String, maxWidth = 800, maxHeight = 1000, qua
 const ImageEditorModal = ({
   isOpen,
   onClose,
-  side,
-  initialItemImage,
+  initialForegroundImages,
   initialBackground,
-  initialPosition,
-  initialSize,
   tshirtBackgrounds,
   onSave,
   compositeImageWithTshirt,
   compressImage
 }) => {
-  const [itemImage, setItemImage] = useState(initialItemImage);
+  // Support multiple foreground images
+  const [foregroundImages, setForegroundImages] = useState([]);
+  const [selectedImageId, setSelectedImageId] = useState(null);
   const [selectedBackground, setSelectedBackground] = useState(initialBackground);
-  const [position, setPosition] = useState(initialPosition || { x: 50, y: 28 });
-  const [size, setSize] = useState(initialSize || 45);
   const [previewImage, setPreviewImage] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const canvasRef = useRef(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const resizeStartRef = useRef({ size: 0, x: 0, y: 0, handle: null });
+  
+  // Get currently selected image
+  const selectedImage = foregroundImages.find(img => img.id === selectedImageId);
 
   // Reset state when modal opens with new props
   useEffect(() => {
     if (isOpen) {
-      setItemImage(initialItemImage);
+      if (initialForegroundImages && initialForegroundImages.length > 0) {
+        setForegroundImages(initialForegroundImages);
+        setSelectedImageId(initialForegroundImages[0].id);
+      } else {
+        setForegroundImages([]);
+        setSelectedImageId(null);
+      }
       setSelectedBackground(initialBackground);
-      setPosition(initialPosition || { x: 50, y: 28 });
-      setSize(initialSize || 45);
       setPreviewImage(null);
     }
-  }, [isOpen, side, initialItemImage, initialBackground, initialPosition, initialSize]);
+  }, [isOpen, initialBackground, initialForegroundImages]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -81,7 +87,14 @@ const ImageEditorModal = ({
     setIsProcessing(true);
     try {
       const compressedBase64 = await compressImage(file);
-      setItemImage(compressedBase64);
+      const newImage = {
+        id: Date.now(),
+        image: compressedBase64,
+        position: { x: 50, y: 28 },
+        size: 45
+      };
+      setForegroundImages(prev => [...prev, newImage]);
+      setSelectedImageId(newImage.id);
     } catch (err) {
       console.error('Upload error:', err);
       alert('Failed to upload image. Please try a smaller image.');
@@ -90,117 +103,262 @@ const ImageEditorModal = ({
     }
   };
 
-  const handleMouseDown = (e) => {
-    if (!itemImage) return;
+  const handleRemoveImage = (imageId) => {
+    setForegroundImages(prev => prev.filter(img => img.id !== imageId));
+    if (selectedImageId === imageId) {
+      setSelectedImageId(foregroundImages.find(img => img.id !== imageId)?.id || null);
+    }
+  };
+
+  const updateSelectedImage = (updates) => {
+    setForegroundImages(prev => prev.map(img =>
+      img.id === selectedImageId ? { ...img, ...updates } : img
+    ));
+  };
+
+  const handleImageMouseDown = (imageId, e) => {
+    if (!selectedImage) return;
+    e.stopPropagation();
+    
+    setSelectedImageId(imageId);
+    
+    // Move this image to the top of the layer order
+    setForegroundImages(prev => {
+      const imageIndex = prev.findIndex(img => img.id === imageId);
+      if (imageIndex === -1) return prev;
+      const newImages = [...prev];
+      const [movedImage] = newImages.splice(imageIndex, 1);
+      newImages.push(movedImage);
+      return newImages;
+    });
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
+    const img = foregroundImages.find(i => i.id === imageId);
     
     dragStartRef.current = {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-      startPosX: position.x,
-      startPosY: position.y
+      startPosX: img.position.x,
+      startPosY: img.position.y
     };
     
     setIsDragging(true);
   };
 
   const handleMouseMove = (e) => {
-    if (!isDragging || !itemImage) return;
-    
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
-    
-    const deltaX = currentX - dragStartRef.current.x;
-    const deltaY = currentY - dragStartRef.current.y;
-    
-    // Convert pixel delta to percentage
-    const deltaXPercent = (deltaX / rect.width) * 100;
-    const deltaYPercent = (deltaY / rect.height) * 100;
-    
-    const newX = Math.max(0, Math.min(100, dragStartRef.current.startPosX + deltaXPercent));
-    const newY = Math.max(0, Math.min(100, dragStartRef.current.startPosY + deltaYPercent));
-    
-    setPosition({ x: newX, y: newY });
+    if (isDragging && selectedImage) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      const deltaX = currentX - dragStartRef.current.x;
+      const deltaY = currentY - dragStartRef.current.y;
+      
+      const deltaXPercent = (deltaX / rect.width) * 100;
+      const deltaYPercent = (deltaY / rect.height) * 100;
+      
+      const newX = Math.max(0, Math.min(100, dragStartRef.current.startPosX + deltaXPercent));
+      const newY = Math.max(0, Math.min(100, dragStartRef.current.startPosY + deltaYPercent));
+      
+      updateSelectedImage({ position: { x: newX, y: newY } });
+    } else if (isResizing && selectedImage) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      const deltaX = currentX - resizeStartRef.current.x;
+      const deltaY = currentY - resizeStartRef.current.y;
+      
+      // Calculate distance from center for more consistent resizing
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      // Determine direction based on which handle is being used
+      const handle = resizeStartRef.current.handle;
+      let direction;
+      
+      if (handle === 'tl') {
+        // Top-left: drag left/up to grow, right/down to shrink
+        direction = (deltaX + deltaY) < 0 ? 1 : -1;
+      } else if (handle === 'tr') {
+        // Top-right: drag right/up to grow, left/down to shrink
+        direction = (deltaX - deltaY) > 0 ? 1 : -1;
+      } else if (handle === 'bl') {
+        // Bottom-left: drag left/down to grow, right/up to shrink
+        direction = (deltaX - deltaY) < 0 ? 1 : -1;
+      } else if (handle === 'br') {
+        // Bottom-right: drag right/down to grow, left/up to shrink
+        direction = (deltaX + deltaY) > 0 ? 1 : -1;
+      }
+      
+      const sizeChange = (distance * direction / rect.width) * 100;
+      
+      const newSize = Math.max(10, Math.min(150, resizeStartRef.current.size + sizeChange));
+      updateSelectedImage({ size: newSize });
+    }
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    setIsResizing(false);
   };
 
-  const handleTouchStart = (e) => {
-    if (!itemImage) return;
+  const handleResizeMouseDown = (handle, e) => {
+    if (!selectedImage) return;
+    e.stopPropagation();
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    resizeStartRef.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      size: selectedImage.size,
+      handle: handle
+    };
+    
+    setIsResizing(true);
+  };
+
+  const handleImageTouchStart = (imageId, e) => {
+    if (!selectedImage) return;
+    e.stopPropagation();
+    
+    setSelectedImageId(imageId);
+    
+    // Move this image to the top of the layer order
+    setForegroundImages(prev => {
+      const imageIndex = prev.findIndex(img => img.id === imageId);
+      if (imageIndex === -1) return prev;
+      const newImages = [...prev];
+      const [movedImage] = newImages.splice(imageIndex, 1);
+      newImages.push(movedImage);
+      return newImages;
+    });
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches[0];
+    const img = foregroundImages.find(i => i.id === imageId);
     
     dragStartRef.current = {
       x: touch.clientX - rect.left,
       y: touch.clientY - rect.top,
-      startPosX: position.x,
-      startPosY: position.y
+      startPosX: img.position.x,
+      startPosY: img.position.y
     };
     
     setIsDragging(true);
   };
 
   const handleTouchMove = (e) => {
-    if (!isDragging || !itemImage) return;
-    e.preventDefault();
+    if (isDragging && selectedImage) {
+      e.preventDefault();
+      
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      
+      const currentX = touch.clientX - rect.left;
+      const currentY = touch.clientY - rect.top;
+      
+      const deltaX = currentX - dragStartRef.current.x;
+      const deltaY = currentY - dragStartRef.current.y;
+      
+      const deltaXPercent = (deltaX / rect.width) * 100;
+      const deltaYPercent = (deltaY / rect.height) * 100;
+      
+      const newX = Math.max(0, Math.min(100, dragStartRef.current.startPosX + deltaXPercent));
+      const newY = Math.max(0, Math.min(100, dragStartRef.current.startPosY + deltaYPercent));
+      
+      updateSelectedImage({ position: { x: newX, y: newY } });
+    } else if (isResizing && selectedImage) {
+      e.preventDefault();
+      
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      
+      const currentX = touch.clientX - rect.left;
+      const currentY = touch.clientY - rect.top;
+      
+      const deltaX = currentX - resizeStartRef.current.x;
+      const deltaY = currentY - resizeStartRef.current.y;
+      
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      // Determine direction based on which handle is being used
+      const handle = resizeStartRef.current.handle;
+      let direction;
+      
+      if (handle === 'tl') {
+        // Top-left: drag left/up to grow, right/down to shrink
+        direction = (deltaX + deltaY) < 0 ? 1 : -1;
+      } else if (handle === 'tr') {
+        // Top-right: drag right/up to grow, left/down to shrink
+        direction = (deltaX - deltaY) > 0 ? 1 : -1;
+      } else if (handle === 'bl') {
+        // Bottom-left: drag left/down to grow, right/up to shrink
+        direction = (deltaX - deltaY) < 0 ? 1 : -1;
+      } else if (handle === 'br') {
+        // Bottom-right: drag right/down to grow, left/up to shrink
+        direction = (deltaX + deltaY) > 0 ? 1 : -1;
+      }
+      
+      const sizeChange = (distance * direction / rect.width) * 100;
+      
+      const newSize = Math.max(10, Math.min(150, resizeStartRef.current.size + sizeChange));
+      updateSelectedImage({ size: newSize });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
+
+  const handleResizeTouchStart = (handle, e) => {
+    if (!selectedImage) return;
+    e.stopPropagation();
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches[0];
     
-    const currentX = touch.clientX - rect.left;
-    const currentY = touch.clientY - rect.top;
+    resizeStartRef.current = {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top,
+      size: selectedImage.size,
+      handle: handle
+    };
     
-    const deltaX = currentX - dragStartRef.current.x;
-    const deltaY = currentY - dragStartRef.current.y;
-    
-    const deltaXPercent = (deltaX / rect.width) * 100;
-    const deltaYPercent = (deltaY / rect.height) * 100;
-    
-    const newX = Math.max(0, Math.min(100, dragStartRef.current.startPosX + deltaXPercent));
-    const newY = Math.max(0, Math.min(100, dragStartRef.current.startPosY + deltaYPercent));
-    
-    setPosition({ x: newX, y: newY });
-  };
-
-  const handleTouchEnd = () => {
-    setIsDragging(false);
+    setIsResizing(true);
   };
 
   const handleSave = async () => {
-    if (!itemImage || !selectedBackground) {
-      console.error('Missing itemImage or selectedBackground');
+    if (foregroundImages.length === 0 || !selectedBackground) {
+      console.error('Missing foreground images or selectedBackground');
       return;
     }
     
     setIsProcessing(true);
     try {
-      // Generate the final composite image only when saving
+      // Generate the final composite image with all foreground images
       const finalComposite = await compositeImageWithTshirt(
-        itemImage,
-        selectedBackground,
-        position,
-        size
+        foregroundImages,
+        selectedBackground
       );
       
       // Compress the composite image to fit within Firestore limits (1MB)
       const compressedComposite = await compressBase64Image(finalComposite, 800, 1000, 0.7);
       
-      // Call onSave and wait for it to complete
       await onSave({
-        itemImage,
         selectedBackground,
-        position,
-        size,
+        foregroundImages,
         previewImage: compressedComposite
       });
       
@@ -226,7 +384,7 @@ const ImageEditorModal = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-gray-900">
-            Modify {side === 'frontImage' ? 'Front' : 'Back'} Image
+            Modify Preview Image
           </h2>
           <button
             onClick={handleCancel}
@@ -238,107 +396,140 @@ const ImageEditorModal = ({
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Step 1: Upload Image */}
+          {/* Canvas Preview */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">1. Upload item Image</h3>
-            <label className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 w-full max-w-xs">
-              <Upload className="w-4 h-4" />
-              <span>Choose Image</span>
-              <input
-                type="file"
-                accept="image/jpeg, image/png"
-                className="hidden"
-                onChange={handleImageUpload}
-                disabled={isProcessing}
-              />
-            </label>
-          </div>
-
-          {/* Step 2: Position & Resize */}
-          {itemImage && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">2. Position & Resize item</h3>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-xs text-gray-600 mb-3">
-                  Click and drag (or touch and drag) the item to position it. Use the slider below to resize.
-                </p>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              {/* Interactive Preview with Static Background */}
+              <div
+                ref={canvasRef}
+                className="w-full aspect-[4/3] rounded border-2 border-gray-300 overflow-hidden relative"
+                style={{ touchAction: 'none' }}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              >
+                {/* Static Background Image */}
+                <img
+                  src={selectedBackground}
+                  alt="Background"
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                  draggable="false"
+                />
                 
-                {/* Interactive Preview with Static Background */}
-                <div
-                  ref={canvasRef}
-                  className={`w-full aspect-[4/5] rounded border-2 ${
-                    isDragging ? 'border-indigo-500 cursor-grabbing' : 'border-gray-300 cursor-grab'
-                  } overflow-hidden mb-4 relative`}
-                  style={{ touchAction: 'none' }}
-                >
-                  {/* Static Background Image */}
+                {/* Render all foreground images - last added on top */}
+                {foregroundImages.map((img, index) => (
                   <img
-                    src={selectedBackground}
-                    alt="Background"
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
-                    draggable="false"
-                  />
-                  
-                  {/* Draggable item Image Overlay */}
-                  <img
-                    src={itemImage}
+                    key={img.id}
+                    src={img.image}
                     alt="item"
-                    className="absolute pointer-events-none select-none"
+                    className="absolute select-none"
                     draggable="false"
-                    onMouseDown={handleMouseDown}
-                    onTouchStart={handleTouchStart}
+                    onMouseDown={(e) => handleImageMouseDown(img.id, e)}
+                    onTouchStart={(e) => handleImageTouchStart(img.id, e)}
                     style={{
-                      left: `${position.x}%`,
-                      top: `${position.y}%`,
-                      width: `${size}%`,
+                      left: `${img.position.x}%`,
+                      top: `${img.position.y}%`,
+                      width: `${img.size}%`,
                       height: 'auto',
                       maxWidth: 'none',
                       maxHeight: 'none',
                       transform: 'translate(-50%, 0)',
+                      cursor: isDragging && selectedImageId === img.id ? 'grabbing' : 'grab',
                       pointerEvents: 'auto',
-                      cursor: isDragging ? 'grabbing' : 'grab'
+                      zIndex: 10 + index
                     }}
                   />
-                  
-                  {/* Invisible overlay for drag handling */}
-                  <div
-                    className="absolute inset-0"
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    onTouchStart={handleTouchStart}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                  />
-                </div>
-
-                {/* Size Slider */}
-                <div className="flex items-center gap-3">
-                  <label className="text-xs text-gray-600 whitespace-nowrap">Size:</label>
+                ))}
+                
+                {/* Resize Handles - Only show for selected image when not dragging */}
+                {selectedImage && !isDragging && !isResizing && (
+                  <>
+                    {/* Top-left handle */}
+                    <div
+                      onMouseDown={(e) => handleResizeMouseDown('tl', e)}
+                      onTouchStart={(e) => handleResizeTouchStart('tl', e)}
+                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
+                      style={{
+                        left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
+                        top: `${selectedImage.position.y}%`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    />
+                    {/* Top-right handle */}
+                    <div
+                      onMouseDown={(e) => handleResizeMouseDown('tr', e)}
+                      onTouchStart={(e) => handleResizeTouchStart('tr', e)}
+                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
+                      style={{
+                        left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
+                        top: `${selectedImage.position.y}%`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    />
+                    {/* Bottom-left handle */}
+                    <div
+                      onMouseDown={(e) => handleResizeMouseDown('bl', e)}
+                      onTouchStart={(e) => handleResizeTouchStart('bl', e)}
+                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
+                      style={{
+                        left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
+                        top: `calc(${selectedImage.position.y}% + ${selectedImage.size * 0.75}%)`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    />
+                    {/* Bottom-right handle */}
+                    <div
+                      onMouseDown={(e) => handleResizeMouseDown('br', e)}
+                      onTouchStart={(e) => handleResizeTouchStart('br', e)}
+                      className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
+                      style={{
+                        left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
+                        top: `calc(${selectedImage.position.y}% + ${selectedImage.size * 0.75}%)`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    />
+                    {/* Delete button for selected image */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveImage(selectedImage.id);
+                      }}
+                      className="absolute bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors z-50"
+                      style={{
+                        left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
+                        top: `${selectedImage.position.y}%`,
+                        transform: 'translate(0%, -100%)'
+                      }}
+                      title="Delete image"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                
+                {/* Add Image Button - Bottom Right */}
+                <label className="absolute bottom-4 right-4 w-12 h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full cursor-pointer flex items-center justify-center shadow-lg transition-colors z-40">
+                  <Plus className="w-6 h-6" />
                   <input
-                    type="range"
-                    min="10"
-                    max="150"
-                    step="1"
-                    value={size}
-                    onChange={(e) => setSize(parseFloat(e.target.value))}
-                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    type="file"
+                    accept="image/jpeg, image/png"
+                    className="hidden"
+                    onChange={handleImageUpload}
                     disabled={isProcessing}
                   />
-                  <span className="text-xs text-gray-500 w-12 text-right">{size}%</span>
-                </div>
+                </label>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Step 3: Change Background */}
-          {itemImage && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">3. Change Background</h3>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  {/* Solid Color Backgrounds - Quarter Size, Single Row */}
-                  <div className="mb-3">
+          {/* Background Selection */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Background</h3>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              {/* Solid Color Backgrounds */}
+              <div className="mb-3">
                     <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
                     <div className="flex flex-wrap gap-2">
                       {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
@@ -377,14 +568,13 @@ const ImageEditorModal = ({
                         ))}
                       </div>
                     </div>
-                  )}
-                  
-                <p className="text-xs text-gray-500 mt-3">
-                  Selected: {tshirtBackgrounds.find(bg => bg.url === selectedBackground)?.name || 'Custom'}
-                </p>
-              </div>
+              )}
+              
+              <p className="text-xs text-gray-500 mt-3">
+                Selected: {tshirtBackgrounds.find(bg => bg.url === selectedBackground)?.name || 'Custom'}
+              </p>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -397,7 +587,7 @@ const ImageEditorModal = ({
           </button>
           <button
             onClick={handleSave}
-            disabled={!itemImage || isProcessing}
+            disabled={foregroundImages.length === 0 || isProcessing}
             className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
