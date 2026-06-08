@@ -65,6 +65,7 @@ export async function submitMultiItemOrder({
     totalPrice: totalPrice,
     timestamp: timestamp,
     createdAt: timestamp,
+    status: 'open',
     isAdminOrder,
     ...(paymentId && { paymentId: paymentId }),
     ...(isAdminOrder && adminUser ? {

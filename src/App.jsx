@@ -86,7 +86,8 @@ export default function App() {
     handleEditOrder,
     handleSaveEdit,
     handleCancelEdit,
-    handleDeleteOrder
+    handleDeleteOrder,
+    handleChangeOrderStatus
   } = useOrders(user, view);
 
   // State for expandable orders in the All Orders section
@@ -94,6 +95,10 @@ export default function App() {
   
   // State for collapsible item orders sections
   const [itemOrdersExpanded, setItemOrdersExpanded] = useState({});
+  
+  // State for print labels dialog
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [printFilter, setPrintFilter] = useState('all'); // 'all' or 'completed'
 
   const {
     feedbackByItem,
@@ -1040,6 +1045,158 @@ export default function App() {
             );
           })}
 
+              {/* Production Summary Section */}
+              <div className="mt-12 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">Production Summary</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Total quantities needed for each item and size
+                  </p>
+                </div>
+
+                {orders.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No orders to summarize yet.
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {(() => {
+                      // Calculate totals for each item and size, separated by status
+                      const productionTotals = {};
+                      
+                      orders.forEach(order => {
+                        // Skip cancelled orders
+                        if (order.status === 'cancelled') return;
+                        
+                        const orderStatus = order.status || 'open';
+                        
+                        if (order.items && Array.isArray(order.items)) {
+                          // New structure: items array
+                          order.items.forEach(item => {
+                            const itemName = item.itemName;
+                            const size = item.size;
+                            const quantity = item.quantity || 1;
+                            
+                            if (!productionTotals[itemName]) {
+                              productionTotals[itemName] = { open: {}, completed: {} };
+                            }
+                            if (!productionTotals[itemName][orderStatus][size]) {
+                              productionTotals[itemName][orderStatus][size] = 0;
+                            }
+                            productionTotals[itemName][orderStatus][size] += quantity;
+                          });
+                        } else if (order.sizes) {
+                          // Legacy structure: single item with sizes
+                          const item = items.find(d => d.id === order.itemId);
+                          const itemName = item?.name || 'Unknown item';
+                          
+                          if (!productionTotals[itemName]) {
+                            productionTotals[itemName] = { open: {}, completed: {} };
+                          }
+                          
+                          SIZES.forEach(size => {
+                            if (order.sizes[size] && order.sizes[size] > 0) {
+                              if (!productionTotals[itemName][orderStatus][size]) {
+                                productionTotals[itemName][orderStatus][size] = 0;
+                              }
+                              productionTotals[itemName][orderStatus][size] += order.sizes[size];
+                            }
+                          });
+                        }
+                      });
+                      
+                      // Render the production summary
+                      return Object.entries(productionTotals).map(([itemName, statusData]) => {
+                        const openTotal = Object.values(statusData.open).reduce((sum, qty) => sum + qty, 0);
+                        const completedTotal = Object.values(statusData.completed).reduce((sum, qty) => sum + qty, 0);
+                        const grandTotal = openTotal + completedTotal;
+                        
+                        return (
+                          <div key={itemName} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <h3 className="text-lg font-semibold text-gray-900">{itemName}</h3>
+                              <span className="text-sm font-medium text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
+                                Total: {grandTotal}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {/* Open Orders Section */}
+                              {openTotal > 0 && (
+                                <div>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h4 className="text-xs font-semibold text-green-700">Open</h4>
+                                    <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">
+                                      {openTotal}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    {SIZES.map(size => {
+                                      const quantity = statusData.open[size] || 0;
+                                      return (
+                                        <div
+                                          key={size}
+                                          className={`text-center px-2 py-1 rounded border ${
+                                            quantity > 0
+                                              ? 'border-green-300 bg-green-50'
+                                              : 'border-gray-200 bg-gray-50'
+                                          }`}
+                                        >
+                                          <div className="text-xs font-medium text-gray-600">{size}</div>
+                                          <div className={`text-lg font-bold ${
+                                            quantity > 0 ? 'text-green-600' : 'text-gray-400'
+                                          }`}>
+                                            {quantity}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Completed Orders Section */}
+                              {completedTotal > 0 && (
+                                <div>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h4 className="text-xs font-semibold text-blue-700">Completed</h4>
+                                    <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                                      {completedTotal}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    {SIZES.map(size => {
+                                      const quantity = statusData.completed[size] || 0;
+                                      return (
+                                        <div
+                                          key={size}
+                                          className={`text-center px-2 py-1 rounded border ${
+                                            quantity > 0
+                                              ? 'border-blue-300 bg-blue-50'
+                                              : 'border-gray-200 bg-gray-50'
+                                          }`}
+                                        >
+                                          <div className="text-xs font-medium text-gray-600">{size}</div>
+                                          <div className={`text-lg font-bold ${
+                                            quantity > 0 ? 'text-blue-600' : 'text-gray-400'
+                                          }`}>
+                                            {quantity}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
+
               {/* All Orders Section */}
               <div className="mt-12 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -1049,6 +1206,13 @@ export default function App() {
                       {orders.length} total orders • ${totalRevenue.toFixed(2)} paid
                     </p>
                   </div>
+                  <button
+                    onClick={() => setShowPrintDialog(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Print Labels
+                  </button>
                 </div>
 
                 {orders.length === 0 ? (
@@ -1077,7 +1241,7 @@ export default function App() {
                                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </button>
                                 
-                                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                                <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 items-center">
                                   <div className="text-xs text-gray-500">
                                     {new Date(order.timestamp).toLocaleDateString()}<br/>
                                     {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -1095,6 +1259,28 @@ export default function App() {
                                     <span className="font-bold text-gray-900">
                                       ${(order.totalPrice || 0).toFixed(2)}
                                     </span>
+                                  </div>
+                                  
+                                  <div className="flex items-center justify-end">
+                                    <select
+                                      value={order.status || 'open'}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleChangeOrderStatus(order.id, e.target.value);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`px-3 py-1.5 text-sm font-medium rounded-lg border-2 transition-colors cursor-pointer ${
+                                        (order.status || 'open') === 'open'
+                                          ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                                          : (order.status || 'open') === 'completed'
+                                          ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                                          : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                                      }`}
+                                    >
+                                      <option value="open">Open</option>
+                                      <option value="completed">Completed</option>
+                                      <option value="cancelled">Cancelled</option>
+                                    </select>
                                   </div>
                                 </div>
                               </div>
@@ -1244,6 +1430,69 @@ export default function App() {
 
         </main>
 
+        {/* Print Labels Dialog */}
+        {showPrintDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Print Order Labels</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Choose which orders to include in the print labels:
+              </p>
+              
+              <div className="space-y-3 mb-6">
+                <label className="flex items-center gap-3 p-3 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="printFilter"
+                    value="all"
+                    checked={printFilter === 'all'}
+                    onChange={(e) => setPrintFilter(e.target.value)}
+                    className="w-4 h-4"
+                  />
+                  <div>
+                    <div className="font-medium text-gray-900">Open & Completed Orders</div>
+                    <div className="text-sm text-gray-500">Print labels for all non-cancelled orders</div>
+                  </div>
+                </label>
+                
+                <label className="flex items-center gap-3 p-3 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="printFilter"
+                    value="completed"
+                    checked={printFilter === 'completed'}
+                    onChange={(e) => setPrintFilter(e.target.value)}
+                    className="w-4 h-4"
+                  />
+                  <div>
+                    <div className="font-medium text-gray-900">Completed Orders Only</div>
+                    <div className="text-sm text-gray-500">Print labels only for completed orders</div>
+                  </div>
+                </label>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowPrintDialog(false)}
+                  className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPrintDialog(false);
+                    setTimeout(() => window.print(), 100);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Footer / Admin Trigger */}
         <footer className="mt-auto py-8 text-center flex justify-center">
           {view === 'store' && (
@@ -1259,59 +1508,107 @@ export default function App() {
       </div>
 
       {/* PRINT UI CONTAINER
-        This entirely separate structure is heavily styled to only show up on printer paper. 
-        It divides the items into 48% height blocks so exactly 2 fit per page without overflowing. 
+        This entirely separate structure is heavily styled to only show up on printer paper.
+        One order per page in landscape orientation for easy folding.
       */}
+      <style>{`
+        @media print {
+          @page {
+            size: landscape;
+            margin: 0;
+          }
+        }
+      `}</style>
       <div className="hidden print:block w-full bg-white text-black font-sans">
-        {orders.length === 0 ? (
-          <div className="p-12 text-center text-xl">No orders to print.</div>
-        ) : (
-          orders.map((order) => (
-            <div 
-              key={order.id} 
-              className="h-[48vh] w-full border-b-2 border-dashed border-gray-400 flex flex-row items-center p-12 box-border" 
-              style={{ pageBreakInside: 'avoid' }}
+        {(() => {
+          // Filter orders based on printFilter
+          const filteredOrders = orders.filter(order => {
+            if (order.status === 'cancelled') return false;
+            if (printFilter === 'completed') {
+              return order.status === 'completed';
+            }
+            // 'all' includes both open and completed
+            return order.status === 'open' || order.status === 'completed' || !order.status;
+          });
+          
+          return filteredOrders.length === 0 ? (
+            <div className="p-12 text-center text-xl">No orders to print.</div>
+          ) : (
+            filteredOrders.map((order) => (
+            <div
+              key={order.id}
+              className="min-h-screen w-full flex flex-row items-start p-16 box-border"
+              style={{ pageBreakAfter: 'always' }}
             >
-              {/* Left Side: Name and Total Quantity */}
-              <div className="w-1/2 pr-8 flex flex-col justify-center border-r-2 border-gray-200 h-full">
-                <h2 className="text-5xl font-extrabold mb-6 text-black leading-tight break-words">{order.name}</h2>
-                <div className="text-3xl font-medium text-gray-600">
+              {/* Left Side: Name and Total Quantity (Public - Front when folded) */}
+              <div className="w-1/2 pr-12 flex flex-col">
+                <h2 className="text-7xl font-extrabold mb-8 text-black leading-tight break-words">{order.name}</h2>
+                <div className="text-4xl font-medium text-gray-600">
                   Total Items: <span className="font-bold text-black">{order.totalItems}</span>
                 </div>
               </div>
 
-              {/* Right Side: Sizes and Notes */}
-              <div className="w-1/2 pl-8 flex flex-col justify-center h-full">
-                <div className="flex flex-wrap gap-6">
-                  {(() => {
-                    // Calculate size totals from items array or use legacy sizes
-                    const sizeTotals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
-                    if (order.items && Array.isArray(order.items)) {
-                      order.items.forEach(item => {
-                        sizeTotals[item.size] = (sizeTotals[item.size] || 0) + item.quantity;
-                      });
-                    } else if (order.sizes) {
-                      Object.assign(sizeTotals, order.sizes);
-                    }
-                    
-                    return SIZES.map(size => sizeTotals[size] > 0 ? (
-                      <div key={size} className="flex flex-col items-center border-2 border-black rounded-lg p-4 min-w-[100px]">
-                        <span className="text-2xl font-bold text-gray-500 border-b-2 border-black w-full text-center pb-2 mb-2">{size}</span>
-                        <span className="text-5xl font-black">{sizeTotals[size]}</span>
-                      </div>
-                    ) : null);
-                  })()}
+              {/* Right Side: Order Details (Private - Back when folded) */}
+              <div className="w-1/2 pl-12 flex flex-col">
+                {/* Name and Total Items */}
+                <div className="mb-4">
+                  <h3 className="text-3xl font-bold text-black mb-2">{order.name}</h3>
+                  <div className="text-xl font-medium text-gray-600">
+                    Total Items: <span className="font-bold text-black">{order.totalItems}</span>
+                  </div>
                 </div>
+                
+                {/* Order Notes */}
                 {order.notes && (
-                  <div className="mt-8 text-xl text-gray-700 italic border-l-4 border-gray-400 pl-4 py-2">
-                    <span className="font-bold not-italic block mb-1">Notes:</span>
+                  <div className="mb-4 text-lg text-gray-700 italic border-l-4 border-gray-400 pl-3 py-2">
                     "{order.notes}"
                   </div>
                 )}
+                
+                {/* Items Table */}
+                <div className="flex-1 overflow-hidden">
+                  <table className="w-full border-2 border-black">
+                    <thead>
+                      <tr className="bg-gray-200 border-b-2 border-black">
+                        <th className="text-left px-3 py-2 text-lg font-bold border-r border-black">Item</th>
+                        <th className="text-center px-3 py-2 text-lg font-bold border-r border-black">Size</th>
+                        <th className="text-center px-3 py-2 text-lg font-bold">Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {order.items && Array.isArray(order.items) ? (
+                        // New structure: items array
+                        order.items.map((item, index) => (
+                          <tr key={index} className="border-b border-black">
+                            <td className="px-3 py-2 text-base border-r border-black">{item.itemName}</td>
+                            <td className="px-3 py-2 text-base text-center font-bold border-r border-black">{item.size}</td>
+                            <td className="px-3 py-2 text-base text-center font-bold">{item.quantity}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        // Legacy structure: single item with sizes
+                        SIZES.map(size => {
+                          if (!order.sizes?.[size] || order.sizes[size] === 0) return null;
+                          const item = items.find(d => d.id === order.itemId);
+                          const itemName = item?.name || 'Unknown item';
+                          
+                          return (
+                            <tr key={size} className="border-b border-black">
+                              <td className="px-3 py-2 text-base border-r border-black">{itemName}</td>
+                              <td className="px-3 py-2 text-base text-center font-bold border-r border-black">{size}</td>
+                              <td className="px-3 py-2 text-base text-center font-bold">{order.sizes[size]}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          ))
-        )}
+            ))
+          );
+        })()}
       </div>
 
     </>

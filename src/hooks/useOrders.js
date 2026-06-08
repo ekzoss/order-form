@@ -87,6 +87,18 @@ export function useOrders(user, view) {
     }
   };
 
+  const handleChangeOrderStatus = async (orderId, newStatus) => {
+    try {
+      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId);
+      await updateDoc(orderRef, {
+        status: newStatus
+      });
+    } catch (err) {
+      console.error('Error updating order status:', err);
+      alert('Failed to update order status');
+    }
+  };
+
   return {
     orders,
     editingOrderId,
@@ -99,7 +111,8 @@ export function useOrders(user, view) {
     handleEditOrder,
     handleSaveEdit,
     handleCancelEdit,
-    handleDeleteOrder
+    handleDeleteOrder,
+    handleChangeOrderStatus
   };
 }
 
