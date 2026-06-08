@@ -111,7 +111,6 @@ export default function App() {
   } = useFeedback(user, view);
 
   // UI State
-  const [pageInfoExpanded, setPageInfoExpanded] = useState(true);
   const [zoomedImage, setZoomedImage] = useState(null);
   
   // Image Editor Modal State
@@ -731,8 +730,6 @@ export default function App() {
                 configForm={configForm}
                 setConfigForm={setConfigForm}
                 handleSaveConfig={handleSaveConfig}
-                pageInfoExpanded={pageInfoExpanded}
-                setPageInfoExpanded={setPageInfoExpanded}
               />
 
               {/* Items Section */}
@@ -905,92 +902,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Totals Summary Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
-                      {SIZES.map(size => (
-                        <div key={size} className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-                          <span className="text-gray-500 text-xs font-bold mb-1">SIZE {size}</span>
-                          <span className="text-2xl font-extrabold text-indigo-600">{itemTotals.sizes[size]}</span>
-                        </div>
-                      ))}
-                      {/* Total Revenue */}
-                      <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex flex-col items-center justify-center">
-                        <span className="text-green-700 text-xs font-bold mb-1">REVENUE</span>
-                        <span className="text-2xl font-extrabold text-green-600">
-                          ${itemTotals.revenue.toFixed(2)}
-                        </span>
-                      </div>
-                      {/* Print Labels Button */}
-                      <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
-                        <button
-                          onClick={() => window.print()}
-                          className="text-white font-medium transition-colors flex items-center gap-2 text-xs hover:text-gray-200"
-                          title="Print Packaging Labels"
-                        >
-                          <Printer className="w-4 h-4" />
-                          <span className="hidden lg:inline">Print</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Orders Details - Collapsible */}
-                    {itemOrders.length > 0 && (
-                      <div className="border border-gray-200 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => setItemOrdersExpanded(prev => ({
-                            ...prev,
-                            [item.id]: !prev[item.id]
-                          }))}
-                          className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
-                        >
-                          <span className="text-sm font-semibold text-gray-700">Details</span>
-                          {itemOrdersExpanded[item.id] ?
-                            <ChevronUp className="w-5 h-5 text-gray-400" /> :
-                            <ChevronDown className="w-5 h-5 text-gray-400" />
-                          }
-                        </button>
-                        
-                        {itemOrdersExpanded[item.id] && (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-gray-50 border-b border-gray-200">
-                                <tr>
-                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Name</th>
-                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Notes</th>
-                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Sizes</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100">
-                                {itemOrders.map((order) => {
-                                  // Build sizes string from items array for this item
-                                  let sizesStr = '';
-                                  if (order.items && Array.isArray(order.items)) {
-                                    const itemItems = order.items.filter(orderItem => orderItem.itemId === item.id);
-                                    sizesStr = itemItems
-                                      .map(orderItem => `${orderItem.size}: ${orderItem.quantity}`)
-                                      .join(', ');
-                                  } else if (order.sizes) {
-                                    // Legacy structure
-                                    sizesStr = SIZES
-                                      .filter(size => order.sizes?.[size] > 0)
-                                      .map(size => `${size}: ${order.sizes[size]}`)
-                                      .join(', ');
-                                  }
-                                  
-                                  return (
-                                    <tr key={order.id} className="hover:bg-gray-50">
-                                      <td className="px-4 py-2 text-gray-900">{order.name}</td>
-                                      <td className="px-4 py-2 text-gray-600">{order.notes || '-'}</td>
-                                      <td className="px-4 py-2 text-gray-900">{sizesStr}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     {/* Feedback Section */}
                     {(() => {
@@ -1236,15 +1147,60 @@ export default function App() {
                           >
                             {/* Order Summary Row */}
                             <div
-                              className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                              className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
                               onClick={() => toggleOrderExpansion(order.id)}
                             >
-                              <div className="flex items-center gap-4 flex-1">
+                              {/* Mobile Layout */}
+                              <div className="md:hidden">
+                                <div className="flex items-start justify-between gap-3 mb-2">
+                                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                                    <button className="text-gray-400 hover:text-gray-600 flex-shrink-0 mt-1">
+                                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                    </button>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-gray-900 mb-1">{order.name}</div>
+                                      <div className="text-xs text-gray-500">
+                                        {new Date(order.timestamp).toLocaleDateString()} {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                                    <span className="font-bold text-gray-900">${(order.totalPrice || 0).toFixed(2)}</span>
+                                    <select
+                                      value={order.status || 'open'}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleChangeOrderStatus(order.id, e.target.value);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`px-2 py-1 text-xs font-medium rounded border-2 transition-colors cursor-pointer ${
+                                        (order.status || 'open') === 'open'
+                                          ? 'bg-green-50 border-green-200 text-green-700'
+                                          : (order.status || 'open') === 'completed'
+                                          ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                          : 'bg-red-50 border-red-200 text-red-700'
+                                      }`}
+                                    >
+                                      <option value="open">Open</option>
+                                      <option value="completed">Done</option>
+                                      <option value="cancelled">Cancel</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                {order.notes && (
+                                  <div className="text-xs text-gray-600 truncate ml-6" title={order.notes}>
+                                    {order.notes}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Desktop Layout */}
+                              <div className="hidden md:flex items-center gap-4">
                                 <button className="text-gray-400 hover:text-gray-600">
                                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </button>
                                 
-                                <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 items-center">
+                                <div className="flex-1 grid grid-cols-5 gap-4 items-center">
                                   <div className="text-xs text-gray-500">
                                     {new Date(order.timestamp).toLocaleDateString()}<br/>
                                     {new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
