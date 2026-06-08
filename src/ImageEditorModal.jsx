@@ -445,6 +445,7 @@ const ImageEditorModal = ({
 
   const handleResizeTouchStart = (handle, e) => {
     if (!selectedImage) return;
+    e.preventDefault();
     e.stopPropagation();
     
     const canvas = canvasRef.current;
@@ -615,51 +616,59 @@ const ImageEditorModal = ({
                   />
                 ))}
                 
-                {/* Resize Handles - Only show for selected image when not dragging */}
-                {selectedImage && !isDragging && !isResizing && (
+                {/* Resize Handles - Show for selected image when not dragging */}
+                {selectedImage && !isDragging && (
                   <>
                     {/* Top-left handle */}
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('tl', e)}
                       onTouchStart={(e) => handleResizeTouchStart('tl', e)}
-                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform touch-none"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
                         top: `${selectedImage.position.y}%`,
-                        transform: 'translate(-50%, -50%)'
+                        transform: 'translate(-50%, -50%)',
+                        touchAction: 'none',
+                        pointerEvents: 'auto'
                       }}
                     />
                     {/* Top-right handle */}
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('tr', e)}
                       onTouchStart={(e) => handleResizeTouchStart('tr', e)}
-                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform touch-none"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
                         top: `${selectedImage.position.y}%`,
-                        transform: 'translate(-50%, -50%)'
+                        transform: 'translate(-50%, -50%)',
+                        touchAction: 'none',
+                        pointerEvents: 'auto'
                       }}
                     />
                     {/* Bottom-left handle */}
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('bl', e)}
                       onTouchStart={(e) => handleResizeTouchStart('bl', e)}
-                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform touch-none"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
                         top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
-                        transform: 'translate(-50%, -50%)'
+                        transform: 'translate(-50%, -50%)',
+                        touchAction: 'none',
+                        pointerEvents: 'auto'
                       }}
                     />
                     {/* Bottom-right handle */}
                     <div
                       onMouseDown={(e) => handleResizeMouseDown('br', e)}
                       onTouchStart={(e) => handleResizeTouchStart('br', e)}
-                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform touch-none"
+                      className="absolute w-8 h-8 md:w-4 md:h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
                         top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
-                        transform: 'translate(-50%, -50%)'
+                        transform: 'translate(-50%, -50%)',
+                        touchAction: 'none',
+                        pointerEvents: 'auto'
                       }}
                     />
                     {/* Delete button for selected image - Bottom right, just inside resize handle */}
