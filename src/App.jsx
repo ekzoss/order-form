@@ -130,6 +130,7 @@ export default function App() {
   // Form State
   const [sizesByItem, setSizesByItem] = useState({}); // { itemId: { S: 0, M: 0, ... } }
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAdminOrderSubmitting, setIsAdminOrderSubmitting] = useState(false);
   
   // Order Modal State
   const [showOrderModal, setShowOrderModal] = useState(false);
@@ -180,8 +181,11 @@ export default function App() {
   };
 
   // --- Multi-item Order Submission ---
-  const handleSubmitMultiItemOrder = async (paymentId = null) => {
-    setIsSubmitting(true);
+  const handleSubmitMultiItemOrder = async (paymentId = null, options = {}) => {
+    const { isAdminOrder = false } = options;
+    const setSubmittingState = isAdminOrder ? setIsAdminOrderSubmitting : setIsSubmitting;
+
+    setSubmittingState(true);
     try {
       await submitMultiItemOrder({
         orderModalName,
@@ -191,20 +195,25 @@ export default function App() {
         globalConfig,
         totalItems,
         totalPrice,
-        paymentId
+        paymentId,
+        isAdminOrder,
+        adminUser: isAdminOrder ? user : null
       });
       
       setOrderSubmitted(true);
-      setIsSubmitting(false);
+      setSubmittingState(false);
+      return true;
     } catch (err) {
       console.error('Error submitting orders:', err);
       alert(err.message || 'Failed to submit order');
-      setIsSubmitting(false);
+      setSubmittingState(false);
+      return false;
     }
   };
 
   const handleCloseOrderModal = () => {
     setShowOrderModal(false);
+    setAdminError('');
     if (orderSubmitted) {
       setOrderSubmitted(false);
       setOrderModalName('');
@@ -258,6 +267,15 @@ export default function App() {
     if (success) {
       setView('adminDashboard');
     }
+  };
+
+  const handleAdminOrderLogin = async () => {
+    if (isAdmin) {
+      setAdminError('');
+      return true;
+    }
+
+    return handleAdminLogin();
   };
 
   const handleExitAdmin = async () => {
@@ -431,6 +449,25 @@ export default function App() {
         />
 
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
+          <OrderSubmissionModal
+            showOrderModal={showOrderModal}
+            orderSubmitted={orderSubmitted}
+            handleCloseOrderModal={handleCloseOrderModal}
+            sizesByItem={sizesByItem}
+            items={items}
+            totalPrice={totalPrice}
+            orderModalName={orderModalName}
+            setOrderModalName={setOrderModalName}
+            orderModalNotes={orderModalNotes}
+            setOrderModalNotes={setOrderModalNotes}
+            handleSubmitMultiItemOrder={handleSubmitMultiItemOrder}
+            isSubmitting={isSubmitting}
+            globalConfig={globalConfig}
+            isAdmin={isAdmin}
+            adminError={adminError}
+            onAdminOrderLogin={handleAdminOrderLogin}
+            isAdminOrderSubmitting={isAdminOrderSubmitting}
+          />
           
           {/* --- VIEW: STOREFRONT --- */}
           {view === 'store' && !isLoadingItems && items.length === 0 && (
@@ -981,9 +1018,9 @@ export default function App() {
                                   // Build sizes string from items array for this item
                                   let sizesStr = '';
                                   if (order.items && Array.isArray(order.items)) {
-                                    const itemItems = order.items.filter(item => item.itemId === item.id);
+                                    const itemItems = order.items.filter(orderItem => orderItem.itemId === item.id);
                                     sizesStr = itemItems
-                                      .map(item => `${item.size}: ${item.quantity}`)
+                                      .map(orderItem => `${orderItem.size}: ${orderItem.quantity}`)
                                       .join(', ');
                                   } else if (order.sizes) {
                                     // Legacy structure
@@ -1070,7 +1107,7 @@ export default function App() {
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">All Orders</h2>
                     <p className="text-sm text-gray-500 mt-1">
-                      {orders.length} total orders � ${totalRevenue.toFixed(2)} paid
+                      {orders.length} total orders • ${totalRevenue.toFixed(2)} paid
                     </p>
                   </div>
                 </div>
@@ -1183,13 +1220,18 @@ export default function App() {
                                     </span>
                                   </div>
                                   
-                                  {/* Payment/Transaction ID if available */}
-                                  {order.paymentId && (
+                                  {/* Payment/Transaction details */}
+                                  {order.paymentId ? (
                                     <div className="flex justify-between items-center pt-2">
                                       <span className="text-sm text-gray-600">Square Transaction ID:</span>
                                       <span className="text-sm text-gray-900 font-mono">{order.paymentId}</span>
                                     </div>
-                                  )}
+                                  ) : order.isAdminOrder ? (
+                                    <div className="flex justify-between items-center pt-2">
+                                      <span className="text-sm text-gray-600">Payment:</span>
+                                      <span className="text-sm text-gray-900">Admin order — no payment processed</span>
+                                    </div>
+                                  ) : null}
                                 </div>
 
                                 <div className="flex items-center justify-between pt-3 border-t border-gray-200">
@@ -1333,21 +1375,6 @@ export default function App() {
         )}
       </div>
 
-      <OrderSubmissionModal
-        showOrderModal={showOrderModal}
-        orderSubmitted={orderSubmitted}
-        handleCloseOrderModal={handleCloseOrderModal}
-        sizesByItem={sizesByItem}
-        items={items}
-        totalPrice={totalPrice}
-        orderModalName={orderModalName}
-        setOrderModalName={setOrderModalName}
-        orderModalNotes={orderModalNotes}
-        setOrderModalNotes={setOrderModalNotes}
-        handleSubmitMultiItemOrder={handleSubmitMultiItemOrder}
-        isSubmitting={isSubmitting}
-        globalConfig={globalConfig}
-      />
     </>
   );
 }

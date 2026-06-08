@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { CheckCircle2, RefreshCw, X } from 'lucide-react';
+import { CheckCircle2, Lock, X } from 'lucide-react';
 import { SIZES } from './constants';
 import SquarePaymentForm from './SquarePaymentForm';
 import { calculateProcessingFee } from './feeUtils';
@@ -18,10 +18,15 @@ const OrderSubmissionModal = ({
   setOrderModalNotes,
   handleSubmitMultiItemOrder,
   isSubmitting,
-  globalConfig
+  globalConfig,
+  isAdmin,
+  adminError,
+  onAdminOrderLogin,
+  isAdminOrderSubmitting
 }) => {
-  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [submissionMode, setSubmissionMode] = useState(null);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+  const [showAdminLoginPrompt, setShowAdminLoginPrompt] = useState(false);
 
   // Calculate processing fee (must be before early return)
   const processingFee = useMemo(() => {
@@ -39,7 +44,20 @@ const OrderSubmissionModal = ({
     setIsProcessingOrder(true);
     // Submit the order after successful payment with payment ID
     await handleSubmitMultiItemOrder(paymentData.id);
-    setPaymentCompleted(true);
+    setSubmissionMode('payment');
+    setIsProcessingOrder(false);
+  };
+
+  const handleAdminOrderClick = async () => {
+    setShowAdminLoginPrompt(true);
+    const success = await onAdminOrderLogin();
+    if (!success) return;
+
+    setIsProcessingOrder(true);
+    const submitted = await handleSubmitMultiItemOrder(null, { isAdminOrder: true });
+    if (submitted) {
+      setSubmissionMode('admin');
+    }
     setIsProcessingOrder(false);
   };
 
@@ -115,7 +133,7 @@ Please follow up with the customer.`
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-gray-900">
-              {orderSubmitted ? 'Order Confirmed!' : 'Review and Pay'}
+              {orderSubmitted ? 'Order Confirmed!' : 'Review Order'}
             </h2>
             <button
               onClick={handleCloseOrderModal}
@@ -203,6 +221,26 @@ Please follow up with the customer.`
                 customerName={orderModalName}
                 orderId={`ORDER-${Date.now()}`}
               />
+
+              <div className="pt-5 flex flex-col items-center gap-2">
+                {showAdminLoginPrompt && !isAdmin && (
+                  <p className="text-xs text-gray-500 text-center">
+                    Admin order requires authorized Google sign-in.
+                  </p>
+                )}
+                {adminError && showAdminLoginPrompt && (
+                  <p className="text-xs text-red-600 text-center">{adminError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAdminOrderClick}
+                  disabled={isSubmitting || isAdminOrderSubmitting}
+                  className="text-gray-300 hover:text-gray-500 disabled:text-gray-200 transition-colors p-2"
+                  title="Create admin order"
+                >
+                  <Lock className="w-4 h-4" />
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -210,9 +248,13 @@ Please follow up with the customer.`
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-green-900 mb-2">Payment Successful!</p>
+                    <p className="font-semibold text-green-900 mb-2">
+                      {submissionMode === 'admin' ? 'Order Submitted!' : 'Payment Successful!'}
+                    </p>
                     <p className="text-sm text-green-800">
-                      Your payment of ${totalWithFee.toFixed(2)} has been processed and your order has been submitted.
+                      {submissionMode === 'admin'
+                        ? 'Your admin order has been submitted without payment processing.'
+                        : `Your payment of $${totalWithFee.toFixed(2)} has been processed and your order has been submitted.`}
                     </p>
                   </div>
                 </div>

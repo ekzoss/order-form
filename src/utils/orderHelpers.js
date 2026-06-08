@@ -11,7 +11,9 @@ export async function submitMultiItemOrder({
   globalConfig,
   totalItems,
   totalPrice,
-  paymentId = null
+  paymentId = null,
+  isAdminOrder = false,
+  adminUser = null
 }) {
   if (!orderModalName.trim()) {
     throw new Error('Please enter your name');
@@ -63,7 +65,15 @@ export async function submitMultiItemOrder({
     totalPrice: totalPrice,
     timestamp: timestamp,
     createdAt: timestamp,
-    ...(paymentId && { paymentId: paymentId })
+    isAdminOrder,
+    ...(paymentId && { paymentId: paymentId }),
+    ...(isAdminOrder && adminUser ? {
+      adminOrderCreatedBy: {
+        uid: adminUser.uid,
+        email: adminUser.email || '',
+        displayName: adminUser.displayName || ''
+      }
+    } : {})
   };
   
   await addDoc(ordersRef, orderData);
@@ -84,6 +94,8 @@ export async function submitMultiItemOrder({
       }).join('\n');
       
       const emailBody = `Name: ${orderModalName.trim()}
+Order Type: ${isAdminOrder ? 'Admin order (payment bypassed)' : 'Standard order'}
+${isAdminOrder && adminUser ? `Created By: ${adminUser.displayName || adminUser.email || adminUser.uid}` : ''}
 Total Items: ${totalItems}
 Total Price: $${totalPrice.toFixed(2)}
 Notes: ${orderModalNotes.trim() || 'None'}
@@ -96,7 +108,7 @@ Order Date: ${new Date().toLocaleString()}`;
       const emailParams = {
         to_email: globalConfig.notificationEmail,
         email: globalConfig.notificationEmail,
-        subject: `New Order from ${orderModalName.trim()}`,
+        subject: `${isAdminOrder ? 'New Admin Order' : 'New Order'} from ${orderModalName.trim()}`,
         body: emailBody
       };
       
