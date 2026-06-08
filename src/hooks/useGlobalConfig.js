@@ -16,7 +16,7 @@ export function useGlobalConfig(user) {
   useEffect(() => {
     if (!user) return;
 
-    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main');
     const unsubscribe = onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -61,7 +61,7 @@ export function useGlobalConfig(user) {
     
     setIsSavingConfig(true);
     try {
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'main');
+      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main');
       await setDoc(configRef, configForm, { merge: true });
       return true;
     } catch (err) {

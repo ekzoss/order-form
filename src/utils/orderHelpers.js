@@ -17,7 +17,7 @@ export async function submitMultiDesignOrder({
     throw new Error('Please enter your name');
   }
 
-  const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
+  const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
   const timestamp = Date.now();
   
   // Build items array with design+size quantities
@@ -37,7 +37,7 @@ export async function submitMultiDesignOrder({
           designName: design.name,
           size: size,
           quantity: quantity,
-          subtotal: quantity * design.pricePerShirt
+          subtotal: quantity * design.price
         });
       }
     }
@@ -49,7 +49,7 @@ export async function submitMultiDesignOrder({
         designName: design.name,
         sizes: designSizes,
         totalItems: totalItemsForDesign,
-        totalPrice: totalItemsForDesign * design.pricePerShirt
+        totalPrice: totalItemsForDesign * design.price
       });
     }
   }

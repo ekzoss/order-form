@@ -34,7 +34,7 @@ if (missingFirebaseEnvVars.length > 0) {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-tshirt-app';
+export const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
 
 // Admin UIDs
 export const ADMIN_UIDS = (import.meta.env.VITE_ADMIN_UIDS || '')

@@ -16,7 +16,7 @@ export function useOrders(user, view) {
     setAdminAccessDenied(false);
     setAdminError('');
 
-    const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders');
+    const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
     const q = query(ordersRef);
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -50,7 +50,7 @@ export function useOrders(user, view) {
 
   const handleSaveEdit = async (orderId) => {
     try {
-      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
+      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId);
       
       // Calculate totals from items array
       const totalItems = editFormData.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -79,7 +79,7 @@ export function useOrders(user, view) {
 
   const handleDeleteOrder = async (orderId) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId));
       setDeleteConfirmId(null);
     } catch (err) {
       console.error('Error deleting order:', err);

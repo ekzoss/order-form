@@ -63,7 +63,7 @@ const OrderSubmissionModal = ({
               .filter(size => designSizes[size] > 0)
               .flatMap(size => {
                 return Array.from({ length: designSizes[size] }, () =>
-                  `${design.name} - ${size}: $${design.pricePerShirt.toFixed(2)}`
+                  `${design.name} - ${size}: $${design.price.toFixed(2)}`
                 );
               });
           })
@@ -140,7 +140,7 @@ Please follow up with the customer.`
                     key: `${designId}-${size}-${index}`,
                     designName: design.name,
                     size: size,
-                    price: design.pricePerShirt
+                    price: design.price
                   }));
                 });
             }).map(item => (

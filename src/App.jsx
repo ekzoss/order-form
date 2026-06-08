@@ -246,7 +246,7 @@ export default function App() {
       const design = designs.find(d => d.id === designId);
       if (design) {
         const designTotal = Object.values(designSizes).reduce((acc, curr) => acc + curr, 0);
-        total += designTotal * design.pricePerShirt;
+        total += designTotal * design.price;
       }
     });
     return total;
@@ -340,7 +340,7 @@ export default function App() {
             totals[size] += order.sizes[size];
           }
         });
-        revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.pricePerShirt || 0);
+        revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.price || 0);
       }
     });
     
@@ -437,7 +437,7 @@ export default function App() {
             <div className="max-w-2xl mx-auto text-center py-16">
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-8">
                 <AlertCircle className="w-16 h-16 text-yellow-600 mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">No Designs Available</h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">No Items Available</h2>
                 <p className="text-gray-600 mb-6">
                   The store is being set up. Please check back soon or contact the administrator.
                 </p>
@@ -474,7 +474,7 @@ export default function App() {
                     {isPreview ? (
                       <p className="text-lg text-yellow-600 font-semibold whitespace-nowrap ml-4">(Preview)</p>
                     ) : (
-                      <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.pricePerShirt.toFixed(2)} per shirt</p>
+                      <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.price.toFixed(2)}</p>
                     )}
                   </div>
 
@@ -722,15 +722,15 @@ export default function App() {
                 handleDeleteTshirtBg={handleDeleteTshirtBg}
               />
 
-              {/* Orders & Shirt Designs Section */}
+              {/* Items Section */}
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-gray-900">Shirt Designs</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Items</h2>
                 <button
                   onClick={handleCreateDesign}
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
                 >
                   <Plus className="w-4 h-4" />
-                  Create New Design
+                  Create New Item
                 </button>
               </div>
 
@@ -808,7 +808,7 @@ export default function App() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteDesign(design.id);
+                            handleDeleteDesign(design.id, orders);
                           }}
                           className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete Design"
@@ -825,7 +825,7 @@ export default function App() {
                         <div className="space-y-4 mb-6">
                           <div className="grid md:grid-cols-2 gap-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Design Name</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
                               <input
                                 type="text"
                                 value={designEdits[design.id]?.name ?? design.name}
@@ -837,13 +837,13 @@ export default function App() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Price Per Shirt ($)</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Price ($)</label>
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                value={designEdits[design.id]?.pricePerShirt ?? design.pricePerShirt}
-                                onChange={e => handleUpdateDesignField(design.id, 'pricePerShirt', parseFloat(e.target.value) || 0)}
+                                value={designEdits[design.id]?.price ?? design.price}
+                                onChange={e => handleUpdateDesignField(design.id, 'price', parseFloat(e.target.value) || 0)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                               />
                             </div>
@@ -1145,12 +1145,12 @@ export default function App() {
                                       if (!order.sizes?.[size] || order.sizes[size] === 0) return null;
                                       const design = designs.find(d => d.id === order.designId);
                                       const designName = design?.name || 'Unknown Design';
-                                      const pricePerShirt = design?.pricePerShirt || 0;
+                                      const price = design?.price || 0;
                                       
                                       return Array.from({ length: order.sizes[size] }, (_, index) => (
                                         <div key={`${size}-${index}`} className="flex justify-between items-center py-1 text-sm">
                                           <span className="text-gray-900">{designName} - {size}</span>
-                                          <span className="text-gray-900">${pricePerShirt.toFixed(2)}</span>
+                                          <span className="text-gray-900">${price.toFixed(2)}</span>
                                         </div>
                                       ));
                                     })

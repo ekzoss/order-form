@@ -22,7 +22,7 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
   useEffect(() => {
     if (!user) return;
 
-    const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
+    const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
     const unsubscribe = onSnapshot(designsRef, (snapshot) => {
       const fetchedDesigns = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -60,14 +60,14 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
     try {
       const existingNumbers = designs
         .map(d => {
-          const match = d.name.match(/^New Design (\d+)$/);
+          const match = d.name.match(/^Item (\d+)$/);
           return match ? parseInt(match[1]) : 0;
         })
         .filter(n => n > 0);
-      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
-      const defaultName = `New Design ${nextNumber}`;
 
-      const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'designs');
+      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+      const defaultName = `Item ${nextNumber}`;
+      const designsRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
       
       const maxOrder = designs.length > 0
         ? Math.max(...designs.map(d => d.order !== undefined ? d.order : 0))
@@ -77,7 +77,7 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
         name: defaultName,
         productHeader: defaultName,
         productDescription: '',
-        pricePerShirt: 7.50,
+        price: 0,
         frontImage: null,
         backImage: null,
         status: 'open',
@@ -106,18 +106,18 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
       name: design.name,
       productHeader: design.productHeader,
       productDescription: design.productDescription,
-      pricePerShirt: design.pricePerShirt
+      price: design.price
     });
   };
 
   const handleSaveDesignEdit = async (designId) => {
     try {
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', designId);
       await updateDoc(designRef, {
         name: designForm.name,
         productHeader: designForm.productHeader,
         productDescription: designForm.productDescription,
-        pricePerShirt: designForm.pricePerShirt,
+        price: designForm.price,
         updatedAt: Date.now()
       });
       setEditingDesignId(null);
@@ -139,7 +139,7 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
     }
 
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', designId));
       if (selectedDesignId === designId) {
         setSelectedDesignId(designs.find(d => d.id !== designId)?.id || null);
       }
@@ -174,10 +174,10 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
       
       const batch = writeBatch(db);
       
-      const currentRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', currentDesign.id);
+      const currentRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', currentDesign.id);
       batch.update(currentRef, { order: targetOrder, updatedAt: Date.now() });
       
-      const targetRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', targetDesign.id);
+      const targetRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', targetDesign.id);
       batch.update(targetRef, { order: currentOrder, updatedAt: Date.now() });
       
       await batch.commit();
@@ -199,7 +199,7 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
 
   const handleChangeDesignStatus = async (designId, newStatus) => {
     try {
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', designId);
       await updateDoc(designRef, {
         status: newStatus,
         updatedAt: Date.now()
@@ -215,8 +215,19 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
     if (editedDesignIds.length === 0) return true;
 
     try {
-      const promises = editedDesignIds.map(designId => {
-        const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      // Filter out design IDs that don't exist in the designs array
+      // (they might have been deleted or not yet synced)
+      const validDesignIds = editedDesignIds.filter(designId =>
+        designs.some(d => d.id === designId)
+      );
+      
+      if (validDesignIds.length === 0) {
+        setDesignEdits({});
+        return true;
+      }
+      
+      const promises = validDesignIds.map(designId => {
+        const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', designId);
         return updateDoc(designRef, {
           ...designEdits[designId],
           updatedAt: Date.now()
@@ -241,7 +252,7 @@ export function useDesigns(user, selectedDesignId, setSelectedDesignId) {
     }
     
     try {
-      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'designs', designId);
+      const designRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', designId);
       await updateDoc(designRef, {
         [side]: newPreviewImage,
         updatedAt: Date.now()

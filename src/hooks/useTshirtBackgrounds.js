@@ -15,7 +15,7 @@ export function useTshirtBackgrounds(user) {
   useEffect(() => {
     if (!user) return;
 
-    const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+    const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'backgrounds');
     const unsubscribe = onSnapshot(bgLibraryRef, (docSnap) => {
       if (docSnap.exists() && docSnap.data().library) {
         const customBackgrounds = docSnap.data().library;
@@ -62,7 +62,7 @@ export function useTshirtBackgrounds(user) {
       const updatedBackgrounds = [...tshirtBackgrounds, newBg];
       setTshirtBackgrounds(updatedBackgrounds);
       
-      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'backgrounds');
       await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
     } catch (err) {
       console.error("Background save error", err);
@@ -83,7 +83,7 @@ export function useTshirtBackgrounds(user) {
       const updatedBackgrounds = tshirtBackgrounds.filter(bg => bg.id !== bgId);
       setTshirtBackgrounds(updatedBackgrounds);
       
-      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_config', 'backgrounds');
+      const bgLibraryRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'backgrounds');
       await setDoc(bgLibraryRef, { library: updatedBackgrounds }, { merge: true });
     }
   };
