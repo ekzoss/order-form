@@ -7,8 +7,8 @@ export const compressImage = (file) => {
       img.src = event.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
         let width = img.width;
         let height = img.height;
 
@@ -31,7 +31,7 @@ export const compressImage = (file) => {
 
         const isPNG = file.type === 'image/png';
         const format = isPNG ? 'image/png' : 'image/jpeg';
-        const quality = isPNG ? 0.95 : 0.8;
+        const quality = isPNG ? 0.95 : 0.92;
 
         resolve(canvas.toDataURL(format, quality));
       };
@@ -57,6 +57,7 @@ export const compositeImageWithTshirt = (
     tshirtImg.src = tshirtBackgroundUrl;
 
     tshirtImg.onload = () => {
+      // Draw background (solid color or SVG with color)
       ctx.drawImage(tshirtImg, 0, 0, canvas.width, canvas.height);
 
       // Load and draw all foreground images
@@ -89,6 +90,7 @@ export const compositeImageWithTshirt = (
       Promise.all(loadPromises)
         .then(() => {
           try {
+            // Use PNG for better quality with transparency support
             resolve(canvas.toDataURL('image/png', 1.0));
           } catch (err) {
             reject(new Error(`Failed to export composite image: ${err.message}`));
@@ -97,7 +99,7 @@ export const compositeImageWithTshirt = (
         .catch(reject);
     };
 
-    tshirtImg.onerror = (err) => reject(new Error(`Failed to load t-shirt template: ${err}`));
+    tshirtImg.onerror = (err) => reject(new Error(`Failed to load background: ${err}`));
   });
 };
 

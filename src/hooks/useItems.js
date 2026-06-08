@@ -245,9 +245,10 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
 
   const handleSaveImageEditor = async (data, itemId) => {
     const {
-      previewImage: newPreviewImage,
       selectedBackground,
-      foregroundImages
+      foregroundImages,
+      backgroundType,
+      backgroundColor
     } = data;
     
     if (!itemId) {
@@ -257,12 +258,13 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', itemId);
       
-      // Store both the composite image and the composition metadata
+      // Store only the composition metadata - preview will be rendered dynamically
       await updateDoc(itemRef, {
-        previewImage: newPreviewImage,
         previewImageMeta: {
           selectedBackground,
-          foregroundImages
+          foregroundImages,
+          backgroundType,
+          backgroundColor
         },
         updatedAt: Date.now()
       });

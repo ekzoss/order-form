@@ -1,7 +1,86 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Save, Upload, Image as ImageIcon, Plus } from 'lucide-react';
+
+// Helper function to generate solid color background
+const generateSolidColorBackground = (color, width = 1200, height = 900) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.9);
+};
+
+// Helper function to generate SVG background with color
+const generateSvgBackground = async (color, width = 1200, height = 900) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Fetch the SVG as text
+      const response = await fetch('/tshirt.svg');
+      const svgText = await response.text();
+      
+      // Replace white color (#fff or #ffffff) with the selected color
+      // This preserves transparency while changing the t-shirt color
+      const modifiedSvg = svgText
+        .replace(/fill="#fff"/gi, `fill="${color}"`)
+        .replace(/fill="#ffffff"/gi, `fill="${color}"`)
+        .replace(/\.a\{fill:#fff\}/gi, `.a{fill:${color}}`);
+      
+      // Create a blob from the modified SVG
+      const blob = new Blob([modifiedSvg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      
+      // Load the modified SVG as an image
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        // Calculate aspect ratio to fit SVG without stretching
+        const imgAspect = img.width / img.height;
+        const canvasAspect = width / height;
+        
+        let drawWidth, drawHeight, offsetX, offsetY;
+        
+        if (imgAspect > canvasAspect) {
+          // Image is wider than canvas
+          drawWidth = width;
+          drawHeight = width / imgAspect;
+          offsetX = 0;
+          offsetY = (height - drawHeight) / 2;
+        } else {
+          // Image is taller than canvas
+          drawHeight = height;
+          drawWidth = height * imgAspect;
+          offsetX = (width - drawWidth) / 2;
+          offsetY = 0;
+        }
+        
+        // Draw the SVG centered and fitted (transparency is preserved)
+        ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+        
+        // Clean up
+        URL.revokeObjectURL(url);
+        
+        resolve(canvas.toDataURL('image/png', 0.9));
+      };
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load modified t-shirt SVG'));
+      };
+      
+      img.src = url;
+    } catch (error) {
+      reject(new Error('Failed to fetch or process t-shirt SVG: ' + error.message));
+    }
+  });
+};
 // Helper function to compress a base64 image
-const compressBase64Image = (base64String, maxWidth = 800, maxHeight = 1000, quality = 0.7) => {
+const compressBase64Image = (base64String, maxWidth = 1200, maxHeight = 1200, quality = 0.92) => {
   return new Promise((resolve, reject) => {
     const img = new window.Image();
     img.src = base64String;
@@ -27,8 +106,8 @@ const compressBase64Image = (base64String, maxWidth = 800, maxHeight = 1000, qua
       const ctx = canvas.getContext('2d', { alpha: true });
       ctx.drawImage(img, 0, 0, width, height);
       
-      // Use JPEG with quality setting to reduce size
-      const compressed = canvas.toDataURL('image/jpeg', quality);
+      // Use PNG for better quality with transparency support
+      const compressed = canvas.toDataURL('image/png', quality);
       resolve(compressed);
     };
     
@@ -44,6 +123,9 @@ const ImageEditorModal = ({
   onClose,
   initialForegroundImages,
   initialBackground,
+  initialBackgroundType,
+  initialBackgroundColor,
+  initialCustomBackgroundImage,
   tshirtBackgrounds,
   onSave,
   compositeImageWithTshirt,
@@ -57,13 +139,39 @@ const ImageEditorModal = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [imagesLoaded, setImagesLoaded] = useState({});
+  
+  // Background customization state - initialize from props or defaults
+  const [backgroundType, setBackgroundType] = useState(initialBackgroundType || 'solid');
+  const [backgroundColor, setBackgroundColor] = useState(initialBackgroundColor || '#FFFFFF');
+  const [isGeneratingBackground, setIsGeneratingBackground] = useState(false);
+  const [customBackgroundImage, setCustomBackgroundImage] = useState(null);
   
   const canvasRef = useRef(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const resizeStartRef = useRef({ size: 0, x: 0, y: 0, handle: null });
+  const imageRefs = useRef({});
   
   // Get currently selected image
   const selectedImage = foregroundImages.find(img => img.id === selectedImageId);
+  
+  // Helper function to calculate the actual rendered height percentage of an image
+  const getImageHeightPercent = (imageId) => {
+    const imgElement = imageRefs.current[imageId];
+    const canvasElement = canvasRef.current;
+    
+    if (!imgElement || !canvasElement) {
+      // Fallback to aspect ratio if available, otherwise use default
+      const img = foregroundImages.find(i => i.id === imageId);
+      return img?.size * (img?.aspectRatio || 0.75);
+    }
+    
+    const canvasRect = canvasElement.getBoundingClientRect();
+    const imgRect = imgElement.getBoundingClientRect();
+    
+    // Calculate height as percentage of canvas height
+    return (imgRect.height / canvasRect.height) * 100;
+  };
 
   // Reset state when modal opens with new props
   useEffect(() => {
@@ -76,9 +184,12 @@ const ImageEditorModal = ({
         setSelectedImageId(null);
       }
       setSelectedBackground(initialBackground);
+      setBackgroundType(initialBackgroundType || 'solid');
+      setBackgroundColor(initialBackgroundColor || '#FFFFFF');
+      setCustomBackgroundImage(initialCustomBackgroundImage || null);
       setPreviewImage(null);
     }
-  }, [isOpen, initialBackground, initialForegroundImages]);
+  }, [isOpen, initialBackground, initialForegroundImages, initialBackgroundType, initialBackgroundColor, initialCustomBackgroundImage]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -87,11 +198,23 @@ const ImageEditorModal = ({
     setIsProcessing(true);
     try {
       const compressedBase64 = await compressImage(file);
+      
+      // Load the image to get its dimensions
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = compressedBase64;
+      });
+      
+      const aspectRatio = img.height / img.width;
+      
       const newImage = {
         id: Date.now(),
         image: compressedBase64,
         position: { x: 50, y: 28 },
-        size: 45
+        size: 45,
+        aspectRatio: aspectRatio
       };
       setForegroundImages(prev => [...prev, newImage]);
       setSelectedImageId(newImage.id);
@@ -347,19 +470,14 @@ const ImageEditorModal = ({
     
     setIsProcessing(true);
     try {
-      // Generate the final composite image with all foreground images
-      const finalComposite = await compositeImageWithTshirt(
-        foregroundImages,
-        selectedBackground
-      );
-      
-      // Compress the composite image to fit within Firestore limits (1MB)
-      const compressedComposite = await compressBase64Image(finalComposite, 800, 1000, 0.7);
-      
+      // Save only the metadata - no need to pre-composite
+      // The preview will be rendered dynamically from this metadata
       await onSave({
         selectedBackground,
         foregroundImages,
-        previewImage: compressedComposite
+        backgroundType,
+        backgroundColor,
+        customBackgroundImage
       });
       
       // Only close if save was successful
@@ -369,6 +487,57 @@ const ImageEditorModal = ({
       alert('Failed to save changes. Please try again.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleBackgroundChange = async (type, color) => {
+    setIsGeneratingBackground(true);
+    try {
+      let newBackground;
+      if (type === 'solid') {
+        newBackground = generateSolidColorBackground(color);
+      } else {
+        newBackground = await generateSvgBackground(color);
+      }
+      setSelectedBackground(newBackground);
+    } catch (err) {
+      console.error('Background generation error:', err);
+      alert('Failed to generate background. Please try again.');
+    } finally {
+      setIsGeneratingBackground(false);
+    }
+  };
+
+  const handleBackgroundTypeChange = async (type) => {
+    setBackgroundType(type);
+    if (type === 'image' && customBackgroundImage) {
+      // Use the custom image as background
+      setSelectedBackground(customBackgroundImage);
+    } else {
+      await handleBackgroundChange(type, backgroundColor);
+    }
+  };
+
+  const handleColorChange = async (color) => {
+    setBackgroundColor(color);
+    await handleBackgroundChange(backgroundType, color);
+  };
+
+  const handleCustomBackgroundUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsGeneratingBackground(true);
+    try {
+      const compressedBase64 = await compressImage(file);
+      setCustomBackgroundImage(compressedBase64);
+      setSelectedBackground(compressedBase64);
+      setBackgroundType('image');
+    } catch (err) {
+      console.error('Background upload error:', err);
+      alert('Failed to upload background image. Please try again.');
+    } finally {
+      setIsGeneratingBackground(false);
     }
   };
 
@@ -422,10 +591,14 @@ const ImageEditorModal = ({
                 {foregroundImages.map((img, index) => (
                   <img
                     key={img.id}
+                    ref={(el) => { imageRefs.current[img.id] = el; }}
                     src={img.image}
                     alt="item"
                     className="absolute select-none"
                     draggable="false"
+                    onLoad={() => {
+                      setImagesLoaded(prev => ({ ...prev, [img.id]: true }));
+                    }}
                     onMouseDown={(e) => handleImageMouseDown(img.id, e)}
                     onTouchStart={(e) => handleImageTouchStart(img.id, e)}
                     style={{
@@ -475,7 +648,7 @@ const ImageEditorModal = ({
                       className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% - ${selectedImage.size / 2}%)`,
-                        top: `calc(${selectedImage.position.y}% + ${selectedImage.size * 0.75}%)`,
+                        top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
                         transform: 'translate(-50%, -50%)'
                       }}
                     />
@@ -486,25 +659,25 @@ const ImageEditorModal = ({
                       className="absolute w-4 h-4 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 hover:scale-125 transition-transform"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
-                        top: `calc(${selectedImage.position.y}% + ${selectedImage.size * 0.75}%)`,
+                        top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
                         transform: 'translate(-50%, -50%)'
                       }}
                     />
-                    {/* Delete button for selected image */}
+                    {/* Delete button for selected image - Bottom right, just inside resize handle */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRemoveImage(selectedImage.id);
                       }}
-                      className="absolute bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors z-50"
+                      className="absolute bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-colors z-50"
                       style={{
                         left: `calc(${selectedImage.position.x}% + ${selectedImage.size / 2}%)`,
-                        top: `${selectedImage.position.y}%`,
-                        transform: 'translate(0%, -100%)'
+                        top: `calc(${selectedImage.position.y}% + ${getImageHeightPercent(selectedImage.id)}%)`,
+                        transform: 'translate(-120%, -120%)'
                       }}
                       title="Delete image"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3 h-3" />
                     </button>
                   </>
                 )}
@@ -527,52 +700,128 @@ const ImageEditorModal = ({
           {/* Background Selection */}
           <div>
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Background</h3>
-            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-              {/* Solid Color Backgrounds */}
-              <div className="mb-3">
-                    <p className="text-xs font-semibold text-gray-700 mb-2">Solid Colors</p>
-                    <div className="flex flex-wrap gap-2">
-                      {tshirtBackgrounds.filter(bg => bg.color).map(bg => (
-                        <div
-                          key={bg.id}
-                          onClick={() => setSelectedBackground(bg.url)}
-                          className={`relative cursor-pointer rounded border-2 overflow-hidden w-12 h-12 ${
-                            selectedBackground === bg.url
-                              ? 'border-indigo-600 ring-2 ring-indigo-200'
-                              : 'border-gray-300 hover:border-indigo-400'
-                          }`}
-                        >
-                          <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                        </div>
-                      ))}
-                    </div>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+              {/* Background Type Selector */}
+              <div>
+                <p className="text-xs font-semibold text-gray-700 mb-2">Background Type</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleBackgroundTypeChange('solid')}
+                    disabled={isGeneratingBackground}
+                    className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
+                      backgroundType === 'solid'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    Solid Color
+                  </button>
+                  <button
+                    onClick={() => handleBackgroundTypeChange('svg')}
+                    disabled={isGeneratingBackground}
+                    className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
+                      backgroundType === 'svg'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    T-Shirt SVG
+                  </button>
+                  <button
+                    onClick={() => handleBackgroundTypeChange('image')}
+                    disabled={isGeneratingBackground}
+                    className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
+                      backgroundType === 'image'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    Custom Image
+                  </button>
+                </div>
+              </div>
+
+              {/* Color Picker - Only show for solid and svg types */}
+              {backgroundType !== 'image' && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">
+                    {backgroundType === 'solid' ? 'Background Color' : 'T-Shirt Color'}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={backgroundColor}
+                      onChange={(e) => handleColorChange(e.target.value)}
+                      disabled={isGeneratingBackground}
+                      className="w-16 h-10 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <input
+                      type="text"
+                      value={backgroundColor}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (/^#[0-9A-Fa-f]{0,6}$/.test(value)) {
+                          setBackgroundColor(value);
+                          if (value.length === 7) {
+                            handleColorChange(value);
+                          }
+                        }
+                      }}
+                      disabled={isGeneratingBackground}
+                      placeholder="#FFFFFF"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm"
+                    />
                   </div>
-                  
-                  {/* Custom/Graphical Backgrounds - Half Size Grid */}
-                  {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
-                      <div className="grid grid-cols-6 gap-2">
-                        {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
-                          <div
-                            key={bg.id}
-                            onClick={() => setSelectedBackground(bg.url)}
-                            className={`relative cursor-pointer rounded border-2 overflow-hidden aspect-square ${
-                              selectedBackground === bg.url
-                                ? 'border-indigo-600 ring-2 ring-indigo-200'
-                                : 'border-gray-300 hover:border-indigo-400'
-                            }`}
-                          >
-                            <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                  {isGeneratingBackground && (
+                    <p className="text-xs text-gray-500 mt-2">Generating background...</p>
+                  )}
+                </div>
               )}
-              
-              <p className="text-xs text-gray-500 mt-3">
-                Selected: {tshirtBackgrounds.find(bg => bg.url === selectedBackground)?.name || 'Custom'}
-              </p>
+
+              {/* Custom Background Image Upload - Only show for image type */}
+              {backgroundType === 'image' && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">Upload Background Image</p>
+                  <label className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-colors">
+                    <Upload className="w-5 h-5 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">
+                      {customBackgroundImage ? 'Change Background Image' : 'Choose Background Image'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/jpeg, image/png"
+                      className="hidden"
+                      onChange={handleCustomBackgroundUpload}
+                      disabled={isGeneratingBackground}
+                    />
+                  </label>
+                  {customBackgroundImage && (
+                    <p className="text-xs text-green-600 mt-2">✓ Background image uploaded</p>
+                  )}
+                </div>
+              )}
+
+              {/* Custom/Graphical Backgrounds - Optional */}
+              {tshirtBackgrounds.filter(bg => !bg.color).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">Custom Backgrounds</p>
+                  <div className="grid grid-cols-6 gap-2">
+                    {tshirtBackgrounds.filter(bg => !bg.color).map(bg => (
+                      <div
+                        key={bg.id}
+                        onClick={() => setSelectedBackground(bg.url)}
+                        className={`relative cursor-pointer rounded border-2 overflow-hidden aspect-square ${
+                          selectedBackground === bg.url
+                            ? 'border-indigo-600 ring-2 ring-indigo-200'
+                            : 'border-gray-300 hover:border-indigo-400'
+                        }`}
+                      >
+                        <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -26,6 +26,7 @@ import GlobalSettingsForm from './components/GlobalSettingsForm';
 import { DEFAULT_TSHIRT_BACKGROUNDS, SIZES } from './constants';
 import { compressImage, compositeImageWithTshirt } from './imageUtils';
 import { db, appId } from './firebase';
+import PreviewRenderer from './components/PreviewRenderer';
 import { useAuth } from './hooks/useAuth';
 import { useGlobalConfig } from './hooks/useGlobalConfig';
 import { useItems } from './hooks/useItems';
@@ -399,25 +400,33 @@ export default function App() {
       <div className="min-h-screen bg-gray-50 font-sans text-gray-800 selection:bg-indigo-100 flex flex-col relative print:hidden">
         
         {/* Lightbox Zoom Overlay */}
-        {zoomedImage && (
-          <div 
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4" 
-            onClick={() => setZoomedImage(null)}
-          >
-            <button 
-              className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-black/50 p-2 rounded-full"
+        {zoomedImage && (() => {
+          const item = items.find(i => i.id === zoomedImage);
+          return item?.previewImageMeta ? (
+            <div
+              className="fixed inset-0 z-50 bg-white flex items-center justify-center p-4"
               onClick={() => setZoomedImage(null)}
             >
-              <X className="w-8 h-8" />
-            </button>
-            <img
-              src={zoomedImage}
-              alt="Zoomed product"
-              className="max-w-full max-h-full object-contain cursor-zoom-out shadow-2xl"
-              onClick={() => setZoomedImage(null)}
-            />
-          </div>
-        )}
+              <button
+                className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors bg-white/90 p-2 rounded-full shadow-lg"
+                onClick={() => setZoomedImage(null)}
+              >
+                <X className="w-8 h-8" />
+              </button>
+              <div
+                className="w-full max-w-6xl cursor-zoom-out"
+                style={{ aspectRatio: '4/3' }}
+                onClick={() => setZoomedImage(null)}
+              >
+                <PreviewRenderer
+                  previewImageMeta={item.previewImageMeta}
+                  className="w-full h-full shadow-2xl rounded-lg"
+                  alt="Zoomed product"
+                />
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {/* Image Editor Modal */}
         <ImageEditorModal
@@ -432,6 +441,21 @@ export default function App() {
             if (!imageEditorModal.itemId) return DEFAULT_TSHIRT_BACKGROUNDS[0].url;
             const item = items.find(d => d.id === imageEditorModal.itemId);
             return item?.previewImageMeta?.selectedBackground || DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+          })()}
+          initialBackgroundType={(() => {
+            if (!imageEditorModal.itemId) return 'solid';
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            return item?.previewImageMeta?.backgroundType || 'solid';
+          })()}
+          initialBackgroundColor={(() => {
+            if (!imageEditorModal.itemId) return '#FFFFFF';
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            return item?.previewImageMeta?.backgroundColor || '#FFFFFF';
+          })()}
+          initialCustomBackgroundImage={(() => {
+            if (!imageEditorModal.itemId) return null;
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            return item?.previewImageMeta?.customBackgroundImage || null;
           })()}
           tshirtBackgrounds={tshirtBackgrounds}
           onSave={handleSaveImageEditor}
@@ -533,16 +557,16 @@ export default function App() {
                     <div className="max-w-2xl mx-auto">
                       <h3 className="text-sm font-semibold text-gray-700 mb-2 text-center">Preview</h3>
                       <div className="aspect-[4/3] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
-                        {item.previewImage ? (
+                        {item.previewImageMeta?.foregroundImages?.length > 0 ? (
                           <>
-                            <img
-                              src={item.previewImage}
+                            <PreviewRenderer
+                              previewImageMeta={item.previewImageMeta}
+                              className="w-full h-full cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
+                              onClick={() => setZoomedImage(item.id)}
                               alt="Item preview"
-                              className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                              onClick={() => setZoomedImage(item.previewImage)}
                             />
                             <button
-                              onClick={() => setZoomedImage(item.previewImage)}
+                              onClick={() => setZoomedImage(item.id)}
                               className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
                               title="Zoom Image"
                             >
@@ -871,25 +895,29 @@ export default function App() {
                       <label className="block text-sm font-medium text-gray-700 mb-2 text-center">Preview Image</label>
                       <div className="w-full max-w-[500px] mx-auto">
                         <div className="relative group aspect-[4/3] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                          {item.previewImage ? (
-                            <img src={item.previewImage} alt="preview" className="w-full h-full object-contain" />
+                          {item.previewImageMeta?.foregroundImages?.length > 0 ? (
+                            <PreviewRenderer
+                              previewImageMeta={item.previewImageMeta}
+                              className="w-full h-full"
+                              alt="preview"
+                            />
                           ) : (
                             <ImageIcon className="w-12 h-12 text-gray-400" />
                           )}
                           <button
                             onClick={() => handleOpenImageEditor(item.id)}
-                            className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                            className="absolute top-2 right-2 p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
                             title="Modify Preview Image"
                           >
-                            <Edit2 className="w-3 h-3" />
+                            <Edit2 className="w-5 h-5" />
                           </button>
-                          {item.previewImage && (
+                          {item.previewImageMeta?.foregroundImages?.length > 0 && (
                             <button
-                              onClick={() => setZoomedImage(item.previewImage)}
-                              className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                              onClick={() => setZoomedImage(item.id)}
+                              className="absolute bottom-2 right-2 p-2 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
                               title="Zoom Image"
                             >
-                              <ZoomIn className="w-3 h-3" />
+                              <ZoomIn className="w-5 h-5" />
                             </button>
                           )}
                         </div>
