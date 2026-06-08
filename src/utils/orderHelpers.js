@@ -64,7 +64,6 @@ export async function submitMultiDesignOrder({
     totalPrice: totalPrice,
     timestamp: timestamp,
     createdAt: timestamp,
-    isPaid: true,
     ...(paymentId && { paymentId: paymentId })
   };
   

@@ -87,8 +87,7 @@ export default function App() {
     handleEditOrder,
     handleSaveEdit,
     handleCancelEdit,
-    handleDeleteOrder,
-    handleTogglePaid
+    handleDeleteOrder
   } = useOrders(user, view);
 
   const {
@@ -312,13 +311,10 @@ export default function App() {
     }));
   };
 
-  // Calculate total paid amount across all orders
+  // Calculate total revenue across all orders
   const totalRevenue = useMemo(() => {
     return orders.reduce((sum, order) => {
-      if (order.isPaid) {
-        return sum + (order.totalPrice || 0);
-      }
-      return sum;
+      return sum + (order.totalPrice || 0);
     }, 0);
   }, [orders]);
 
@@ -1093,9 +1089,7 @@ export default function App() {
                         return (
                           <div
                             key={order.id}
-                            className={`border border-gray-200 rounded-lg overflow-hidden transition-colors ${
-                              order.isPaid ? 'bg-green-50/30' : 'bg-white'
-                            }`}
+                            className="border border-gray-200 rounded-lg overflow-hidden transition-colors bg-white"
                           >
                             {/* Order Summary Row */}
                             <div
@@ -1122,14 +1116,9 @@ export default function App() {
                                   </div>
                                   
                                   <div className="flex items-center justify-end gap-4">
-                                    <span className={`font-bold ${order.isPaid ? 'text-green-600' : 'text-gray-900'}`}>
+                                    <span className="font-bold text-gray-900">
                                       ${(order.totalPrice || 0).toFixed(2)}
                                     </span>
-                                    {order.isPaid && (
-                                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
-                                        Paid
-                                      </span>
-                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1208,19 +1197,6 @@ export default function App() {
                                   </div>
                                   
                                   <div className="flex items-center gap-3">
-                                    <label className="flex items-center gap-2 text-sm text-gray-700">
-                                      <input
-                                        type="checkbox"
-                                        checked={!!order.isPaid}
-                                        onChange={(e) => {
-                                          e.stopPropagation();
-                                          handleTogglePaid(order.id, !!order.isPaid);
-                                        }}
-                                        className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
-                                      />
-                                      <span className="font-medium">Paid</span>
-                                    </label>
-                                    
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();

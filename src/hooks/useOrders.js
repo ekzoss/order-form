@@ -87,18 +87,6 @@ export function useOrders(user, view) {
     }
   };
 
-  const handleTogglePaid = async (orderId, currentPaidStatus) => {
-    try {
-      const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'tshirt_orders', orderId);
-      await updateDoc(orderRef, {
-        isPaid: !currentPaidStatus
-      });
-    } catch (err) {
-      console.error('Error updating payment status:', err);
-      alert('Failed to update payment status');
-    }
-  };
-
   return {
     orders,
     editingOrderId,
@@ -111,8 +99,7 @@ export function useOrders(user, view) {
     handleEditOrder,
     handleSaveEdit,
     handleCancelEdit,
-    handleDeleteOrder,
-    handleTogglePaid
+    handleDeleteOrder
   };
 }
 
