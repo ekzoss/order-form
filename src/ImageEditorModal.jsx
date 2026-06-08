@@ -177,12 +177,6 @@ const ImageEditorModal = ({
   };
 
   const handleSave = async () => {
-    console.log('ImageEditorModal handleSave called');
-    console.log('itemImage:', itemImage?.substring(0, 50));
-    console.log('selectedBackground:', selectedBackground?.substring(0, 50));
-    console.log('position:', position);
-    console.log('size:', size);
-    
     if (!itemImage || !selectedBackground) {
       console.error('Missing itemImage or selectedBackground');
       return;
@@ -190,7 +184,6 @@ const ImageEditorModal = ({
     
     setIsProcessing(true);
     try {
-      console.log('Generating composite...');
       // Generate the final composite image only when saving
       const finalComposite = await compositeImageWithTshirt(
         itemImage,
@@ -199,14 +192,8 @@ const ImageEditorModal = ({
         size
       );
       
-      console.log('Composite generated, original length:', finalComposite?.length);
-      
       // Compress the composite image to fit within Firestore limits (1MB)
-      console.log('Compressing composite image...');
       const compressedComposite = await compressBase64Image(finalComposite, 800, 1000, 0.7);
-      console.log('Compressed composite length:', compressedComposite?.length);
-      
-      console.log('Calling onSave...');
       
       // Call onSave and wait for it to complete
       await onSave({
@@ -217,14 +204,10 @@ const ImageEditorModal = ({
         previewImage: compressedComposite
       });
       
-      console.log('onSave completed successfully');
-      
       // Only close if save was successful
       onClose();
     } catch (err) {
       console.error('Save error in ImageEditorModal:', err);
-      console.error('Error message:', err.message);
-      console.error('Error stack:', err.stack);
       alert('Failed to save changes. Please try again.');
     } finally {
       setIsProcessing(false);
