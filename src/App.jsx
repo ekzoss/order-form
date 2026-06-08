@@ -428,11 +428,30 @@ export default function App() {
           isOpen={imageEditorModal.isOpen}
           onClose={handleCloseImageEditor}
           side={imageEditorModal.side}
-          initialItemImage={imageEditorModal.itemId && imageEditorModal.side ?
-            items.find(d => d.id === imageEditorModal.itemId)?.[imageEditorModal.side] : null}
-          initialBackground={DEFAULT_TSHIRT_BACKGROUNDS[0].url}
-          initialPosition={{ x: 50, y: 28 }}
-          initialSize={45}
+          initialItemImage={(() => {
+            if (!imageEditorModal.itemId || !imageEditorModal.side) return null;
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
+            return item?.[metadataField]?.itemImage || null;
+          })()}
+          initialBackground={(() => {
+            if (!imageEditorModal.itemId || !imageEditorModal.side) return DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
+            return item?.[metadataField]?.selectedBackground || DEFAULT_TSHIRT_BACKGROUNDS[0].url;
+          })()}
+          initialPosition={(() => {
+            if (!imageEditorModal.itemId || !imageEditorModal.side) return { x: 50, y: 28 };
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
+            return item?.[metadataField]?.position || { x: 50, y: 28 };
+          })()}
+          initialSize={(() => {
+            if (!imageEditorModal.itemId || !imageEditorModal.side) return 45;
+            const item = items.find(d => d.id === imageEditorModal.itemId);
+            const metadataField = imageEditorModal.side === 'frontImage' ? 'frontImageMeta' : 'backImageMeta';
+            return item?.[metadataField]?.size || 45;
+          })()}
           tshirtBackgrounds={tshirtBackgrounds}
           onSave={handleSaveImageEditor}
           compositeImageWithTshirt={compositeImageWithTshirt}
