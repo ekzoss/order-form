@@ -40,7 +40,7 @@ export const compressImage = (file) => {
 };
 
 export const compositeImageWithTshirt = (
-  designImage,
+  itemImage,
   tshirtBackgroundUrl,
   position = { x: 50, y: 28 },
   sizePercent = 45
@@ -61,21 +61,21 @@ export const compositeImageWithTshirt = (
     tshirtImg.onload = () => {
       ctx.drawImage(tshirtImg, 0, 0, canvas.width, canvas.height);
 
-      const designImg = new window.Image();
-      designImg.crossOrigin = 'anonymous';
-      designImg.src = designImage;
+      const itemImg = new window.Image();
+      itemImg.crossOrigin = 'anonymous';
+      itemImg.src = itemImage;
 
-      designImg.onload = () => {
-        const maxDesignWidth = canvas.width * (sizePercent / 100);
-        let designWidth = maxDesignWidth;
-        const designHeight = (designImg.height / designImg.width) * designWidth;
+      itemImg.onload = () => {
+        const maxItemWidth = canvas.width * (sizePercent / 100);
+        let itemWidth = maxItemWidth;
+        const itemHeight = (itemImg.height / itemImg.width) * itemWidth;
 
-        const x = (canvas.width * (position.x / 100)) - (designWidth / 2);
+        const x = (canvas.width * (position.x / 100)) - (itemWidth / 2);
         const y = canvas.height * (position.y / 100);
 
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(designImg, x, y, designWidth, designHeight);
+        ctx.drawImage(itemImg, x, y, itemWidth, itemHeight);
         ctx.restore();
 
         try {
@@ -85,7 +85,7 @@ export const compositeImageWithTshirt = (
         }
       };
 
-      designImg.onerror = (err) => reject(new Error(`Failed to load design image: ${err}`));
+      itemImg.onerror = (err) => reject(new Error(`Failed to load item image: ${err}`));
     };
 
     tshirtImg.onerror = (err) => reject(new Error(`Failed to load t-shirt template: ${err}`));

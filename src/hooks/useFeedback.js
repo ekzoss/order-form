@@ -4,7 +4,7 @@ import { db, appId } from '../firebase';
 import { submitFeedback } from '../utils/orderHelpers';
 
 export function useFeedback(user, view) {
-  const [feedbackByDesign, setFeedbackByDesign] = useState({});
+  const [feedbackByItem, setFeedbackByItem] = useState({});
   const [submittingFeedback, setSubmittingFeedback] = useState({});
   const [submittedFeedback, setSubmittedFeedback] = useState({});
   const [feedbackList, setFeedbackList] = useState([]);
@@ -27,25 +27,25 @@ export function useFeedback(user, view) {
     return () => unsubscribe();
   }, [user, view]);
 
-  const handleSubmitFeedback = async (designId, designs, globalConfig) => {
-    const feedback = feedbackByDesign[designId] || '';
+  const handleSubmitFeedback = async (itemId, items, globalConfig) => {
+    const feedback = feedbackByItem[itemId] || '';
     
-    setSubmittingFeedback(prev => ({ ...prev, [designId]: true }));
+    setSubmittingFeedback(prev => ({ ...prev, [itemId]: true }));
 
     try {
       await submitFeedback({
-        designId,
+        itemId,
         feedback,
-        designs,
+        items,
         globalConfig
       });
 
-      setSubmittedFeedback(prev => ({ ...prev, [designId]: true }));
+      setSubmittedFeedback(prev => ({ ...prev, [itemId]: true }));
     } catch (err) {
       console.error('Error submitting feedback:', err);
       alert(err.message || 'Failed to submit feedback. Please try again.');
     } finally {
-      setSubmittingFeedback(prev => ({ ...prev, [designId]: false }));
+      setSubmittingFeedback(prev => ({ ...prev, [itemId]: false }));
     }
   };
 
@@ -60,8 +60,8 @@ export function useFeedback(user, view) {
   };
 
   return {
-    feedbackByDesign,
-    setFeedbackByDesign,
+    feedbackByItem,
+    setFeedbackByItem,
     submittingFeedback,
     submittedFeedback,
     feedbackList,

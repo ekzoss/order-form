@@ -16,7 +16,7 @@ export default function GlobalSettingsForm({
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
       <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Global Settings</h2>
-      <p className="text-sm text-gray-600 mb-4">These settings apply to all designs.</p>
+      <p className="text-sm text-gray-600 mb-4">These settings apply to all items.</p>
       
       <form onSubmit={handleSaveConfig} className="space-y-4">
         {/* Page Information - Collapsible */}
@@ -103,7 +103,7 @@ export default function GlobalSettingsForm({
           
           {tshirtBgLibraryExpanded && (
             <div className="mt-3">
-              <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing designs. These will be available for both front and back images.</p>
+              <p className="text-xs text-gray-500 mb-3">Upload t-shirt background images to use when compositing items. These will be available for both front and back images.</p>
               
               {/* Solid Color Backgrounds - Quarter Size, Single Row */}
               <div className="mb-4">

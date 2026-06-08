@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShoppingCart,
   ShieldCheck,
@@ -28,16 +28,16 @@ import { compressImage, compositeImageWithTshirt } from './imageUtils';
 import { db, appId } from './firebase';
 import { useAuth } from './hooks/useAuth';
 import { useGlobalConfig } from './hooks/useGlobalConfig';
-import { useDesigns } from './hooks/useDesigns';
+import { useItems } from './hooks/useItems';
 import { useOrders } from './hooks/useOrders';
 import { useTshirtBackgrounds } from './hooks/useTshirtBackgrounds';
 import { useFeedback } from './hooks/useFeedback';
-import { submitMultiDesignOrder } from './utils/orderHelpers';
+import { submitMultiItemOrder } from './utils/orderHelpers';
 import { calculateProcessingFee } from './feeUtils';
 
 export default function App() {
   const [view, setView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
-  const [selectedDesignId, setSelectedDesignId] = useState(null);
+  const [selectedItemId, setSelectedItemId] = useState(null);
 
   // Use custom hooks
   const { user, isLoadingAuth, adminError, setAdminError, handleAdminLogin, handleAdminLogout, isAdmin } = useAuth();
@@ -52,28 +52,28 @@ export default function App() {
   } = useGlobalConfig(user);
   
   const {
-    designs,
-    isLoadingDesigns,
-    selectedDesign,
-    editingDesignId,
-    setEditingDesignId,
-    designForm,
-    setDesignForm,
-    collapsedDesigns,
-    deleteConfirmDesignId,
-    setDeleteConfirmDesignId,
-    designEdits,
-    handleCreateDesign,
-    handleStartEditDesign,
-    handleSaveDesignEdit,
-    handleDeleteDesign,
-    toggleDesignCollapse,
-    handleMoveDesign,
-    handleUpdateDesignField,
-    handleChangeDesignStatus,
-    saveAllDesignEdits,
+    items,
+    isLoadingItems,
+    selectedItem,
+    editingItemId,
+    setEditingItemId,
+    itemForm,
+    setItemForm,
+    collapsedItems,
+    deleteConfirmItemId,
+    setDeleteConfirmItemId,
+    itemEdits,
+    handleCreateItem,
+    handleStartEditItem,
+    handleSaveItemEdit,
+    handleDeleteItem,
+    toggleItemCollapse,
+    handleMoveItem,
+    handleUpdateItemField,
+    handleChangeItemStatus,
+    saveAllItemEdits,
     handleSaveImageEditor: handleSaveImageEditorFromHook
-  } = useDesigns(user, selectedDesignId, setSelectedDesignId);
+  } = useItems(user, selectedItemId, setSelectedItemId);
   
   const {
     orders,
@@ -102,12 +102,12 @@ export default function App() {
   // State for expandable orders in the All Orders section
   const [expandedOrderIds, setExpandedOrderIds] = useState({});
   
-  // State for collapsible design orders sections
-  const [designOrdersExpanded, setDesignOrdersExpanded] = useState({});
+  // State for collapsible item orders sections
+  const [itemOrdersExpanded, setItemOrdersExpanded] = useState({});
 
   const {
-    feedbackByDesign,
-    setFeedbackByDesign,
+    feedbackByItem,
+    setFeedbackByItem,
     submittingFeedback,
     submittedFeedback,
     feedbackList,
@@ -124,11 +124,11 @@ export default function App() {
   const [imageEditorModal, setImageEditorModal] = useState({
     isOpen: false,
     side: null,
-    designId: null
+    itemId: null
   });
 
   // Form State
-  const [sizesByDesign, setSizesByDesign] = useState({}); // { designId: { S: 0, M: 0, ... } }
+  const [sizesByItem, setSizesByItem] = useState({}); // { itemId: { S: 0, M: 0, ... } }
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Order Modal State
@@ -157,11 +157,11 @@ export default function App() {
   };
 
   // --- Image Editor Actions ---
-  const handleOpenImageEditor = (side, designId) => {
+  const handleOpenImageEditor = (side, itemId) => {
     setImageEditorModal({
       isOpen: true,
       side: side,
-      designId: designId
+      itemId: itemId
     });
   };
 
@@ -169,25 +169,25 @@ export default function App() {
     setImageEditorModal({
       isOpen: false,
       side: null,
-      designId: null
+      itemId: null
     });
   };
   
   const handleSaveImageEditor = async (data) => {
     const side = imageEditorModal.side;
-    const designId = imageEditorModal.designId;
-    await handleSaveImageEditorFromHook(data, side, designId);
+    const itemId = imageEditorModal.itemId;
+    await handleSaveImageEditorFromHook(data, side, itemId);
   };
 
-  // --- Multi-Design Order Submission ---
-  const handleSubmitMultiDesignOrder = async (paymentId = null) => {
+  // --- Multi-item Order Submission ---
+  const handleSubmitMultiItemOrder = async (paymentId = null) => {
     setIsSubmitting(true);
     try {
-      await submitMultiDesignOrder({
+      await submitMultiItemOrder({
         orderModalName,
         orderModalNotes,
-        sizesByDesign,
-        designs,
+        sizesByItem,
+        items,
         globalConfig,
         totalItems,
         totalPrice,
@@ -209,16 +209,16 @@ export default function App() {
       setOrderSubmitted(false);
       setOrderModalName('');
       setOrderModalNotes('');
-      setSizesByDesign({});
+      setSizesByItem({});
     }
   };
 
-  const handleSizeChange = (designId, size, value) => {
+  const handleSizeChange = (itemId, size, value) => {
     const numValue = parseInt(value, 10) || 0;
-    setSizesByDesign(prev => ({
+    setSizesByItem(prev => ({
       ...prev,
-      [designId]: {
-        ...(prev[designId] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 }),
+      [itemId]: {
+        ...(prev[itemId] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 }),
         [size]: Math.max(0, numValue)
       }
     }));
@@ -230,27 +230,27 @@ export default function App() {
     setSizes(prev => ({ ...prev, [size]: Math.max(0, numValue) }));
   };
 
-  // Calculate total items across all designs
+  // Calculate total items across all items
   const totalItems = useMemo(() => {
     let total = 0;
-    Object.values(sizesByDesign).forEach(designSizes => {
-      total += Object.values(designSizes).reduce((acc, curr) => acc + curr, 0);
+    Object.values(sizesByItem).forEach(itemSizes => {
+      total += Object.values(itemSizes).reduce((acc, curr) => acc + curr, 0);
     });
     return total;
-  }, [sizesByDesign]);
+  }, [sizesByItem]);
 
-  // Calculate total price across all designs with their individual prices
+  // Calculate total price across all items with their individual prices
   const totalPrice = useMemo(() => {
     let total = 0;
-    Object.entries(sizesByDesign).forEach(([designId, designSizes]) => {
-      const design = designs.find(d => d.id === designId);
-      if (design) {
-        const designTotal = Object.values(designSizes).reduce((acc, curr) => acc + curr, 0);
-        total += designTotal * design.price;
+    Object.entries(sizesByItem).forEach(([itemId, itemSizes]) => {
+      const item = items.find(d => d.id === itemId);
+      if (item) {
+        const itemTotal = Object.values(itemSizes).reduce((acc, curr) => acc + curr, 0);
+        total += itemTotal * item.price;
       }
     });
     return total;
-  }, [sizesByDesign, designs]);
+  }, [sizesByItem, items]);
 
 
   const handleAdminLoginWrapper = async () => {
@@ -275,29 +275,29 @@ export default function App() {
 
   // --- Admin Calculations ---
   
-  // Group orders by design (from items array)
-  const ordersByDesign = useMemo(() => {
+  // Group orders by item (from items array)
+  const ordersByItem = useMemo(() => {
     const grouped = {};
     orders.forEach(order => {
       if (order.items && Array.isArray(order.items)) {
         // New structure: items array
         order.items.forEach(item => {
-          const designId = item.designId || 'unknown';
-          if (!grouped[designId]) {
-            grouped[designId] = [];
+          const itemId = item.itemId || 'unknown';
+          if (!grouped[itemId]) {
+            grouped[itemId] = [];
           }
-          // Check if this order is already in the design's list
-          if (!grouped[designId].find(o => o.id === order.id)) {
-            grouped[designId].push(order);
+          // Check if this order is already in the item's list
+          if (!grouped[itemId].find(o => o.id === order.id)) {
+            grouped[itemId].push(order);
           }
         });
-      } else if (order.designId) {
-        // Legacy structure: single designId
-        const designId = order.designId;
-        if (!grouped[designId]) {
-          grouped[designId] = [];
+      } else if (order.itemId) {
+        // Legacy structure: single itemId
+        const itemId = order.itemId;
+        if (!grouped[itemId]) {
+          grouped[itemId] = [];
         }
-        grouped[designId].push(order);
+        grouped[itemId].push(order);
       }
     });
     return grouped;
@@ -318,29 +318,29 @@ export default function App() {
     }, 0);
   }, [orders]);
 
-  // Calculate totals per design
-  const calculateDesignTotals = (designId) => {
-    const designOrders = ordersByDesign[designId] || [];
+  // Calculate totals per item
+  const calculateItemTotals = (itemId) => {
+    const itemOrders = ordersByItem[itemId] || [];
     const totals = { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
     let revenue = 0;
     
-    designOrders.forEach(order => {
+    itemOrders.forEach(order => {
       if (order.items && Array.isArray(order.items)) {
         // New structure: items array
         order.items.forEach(item => {
-          if (item.designId === designId) {
+          if (item.itemId === itemId) {
             totals[item.size] = (totals[item.size] || 0) + item.quantity;
             revenue += item.subtotal || 0;
           }
         });
-      } else if (order.sizes && order.designId === designId) {
+      } else if (order.sizes && order.itemId === itemId) {
         // Legacy structure
         SIZES.forEach(size => {
           if (order.sizes[size]) {
             totals[size] += order.sizes[size];
           }
         });
-        revenue += (order.totalItems || 0) * (designs.find(d => d.id === designId)?.price || 0);
+        revenue += (order.totalItems || 0) * (items.find(d => d.id === itemId)?.price || 0);
       }
     });
     
@@ -410,8 +410,8 @@ export default function App() {
           isOpen={imageEditorModal.isOpen}
           onClose={handleCloseImageEditor}
           side={imageEditorModal.side}
-          initialDesignImage={imageEditorModal.designId && imageEditorModal.side ?
-            designs.find(d => d.id === imageEditorModal.designId)?.[imageEditorModal.side] : null}
+          initialItemImage={imageEditorModal.itemId && imageEditorModal.side ?
+            items.find(d => d.id === imageEditorModal.itemId)?.[imageEditorModal.side] : null}
           initialBackground={DEFAULT_TSHIRT_BACKGROUNDS[0].url}
           initialPosition={{ x: 50, y: 28 }}
           initialSize={45}
@@ -433,7 +433,7 @@ export default function App() {
         <main className="max-w-5xl mx-auto px-4 py-8 w-full flex-grow">
           
           {/* --- VIEW: STOREFRONT --- */}
-          {view === 'store' && !isLoadingDesigns && designs.length === 0 && (
+          {view === 'store' && !isLoadingItems && items.length === 0 && (
             <div className="max-w-2xl mx-auto text-center py-16">
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-8">
                 <AlertCircle className="w-16 h-16 text-yellow-600 mx-auto mb-4" />
@@ -445,7 +445,7 @@ export default function App() {
             </div>
           )}
           
-          {view === 'store' && designs.length > 0 && (
+          {view === 'store' && items.length > 0 && (
             <div className="space-y-8">
               {/* Page Title and Description */}
               {(globalConfig.pageTitle || globalConfig.pageDescription) && (
@@ -464,27 +464,27 @@ export default function App() {
                 </div>
               )}
 
-              {designs.filter(design => design.status !== 'closed').map(design => {
-                const isPreview = design.status === 'preview';
+              {items.filter(item => item.status !== 'closed').map(item => {
+                const isPreview = item.status === 'preview';
                 return (
-                <div key={design.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div key={item.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                   {/* Title and Price */}
                   <div className="mb-4 flex items-center justify-between">
-                    <h1 className="text-2xl font-bold text-gray-900">{design.productHeader || design.name}</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">{item.productHeader || item.name}</h1>
                     {isPreview ? (
                       <p className="text-lg text-yellow-600 font-semibold whitespace-nowrap ml-4">(Preview)</p>
                     ) : (
-                      <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${design.price.toFixed(2)}</p>
+                      <p className="text-lg text-indigo-600 font-semibold whitespace-nowrap ml-4">${item.price.toFixed(2)}</p>
                     )}
                   </div>
 
                   {/* Description */}
-                  {design.productDescription && (
+                  {item.productDescription && (
                     <div className="mb-6">
                       <div
                         className="text-gray-600 whitespace-pre-wrap [&_a]:text-indigo-600 [&_a]:underline hover:[&_a]:text-indigo-800"
                         dangerouslySetInnerHTML={{
-                          __html: design.productDescription
+                          __html: item.productDescription
                         }}
                       />
                     </div>
@@ -496,16 +496,16 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-semibold text-gray-700 mb-2">Front</h3>
                       <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
-                        {design.frontImage ? (
+                        {item.frontImage ? (
                           <>
                             <img
-                              src={design.frontImage}
+                              src={item.frontImage}
                               alt="Front view"
                               className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                              onClick={() => setZoomedImage(design.frontImage)}
+                              onClick={() => setZoomedImage(item.frontImage)}
                             />
                             <button
-                              onClick={() => setZoomedImage(design.frontImage)}
+                              onClick={() => setZoomedImage(item.frontImage)}
                               className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
                               title="Zoom Image"
                             >
@@ -525,16 +525,16 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-semibold text-gray-700 mb-2">Back</h3>
                       <div className="aspect-[4/5] bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden group border border-gray-200">
-                        {design.backImage ? (
+                        {item.backImage ? (
                           <>
                             <img
-                              src={design.backImage}
+                              src={item.backImage}
                               alt="Back view"
                               className="w-full h-full object-cover cursor-zoom-in group-hover:scale-[1.02] transition-transform duration-300"
-                              onClick={() => setZoomedImage(design.backImage)}
+                              onClick={() => setZoomedImage(item.backImage)}
                             />
                             <button
-                              onClick={() => setZoomedImage(design.backImage)}
+                              onClick={() => setZoomedImage(item.backImage)}
                               className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow-md hover:bg-white transition-colors text-gray-700 hover:text-indigo-600 opacity-0 group-hover:opacity-100"
                               title="Zoom Image"
                             >
@@ -554,51 +554,51 @@ export default function App() {
                   {/* Size Selection or Feedback Form */}
                   <div className="pt-6">
                     {isPreview ? (
-                      // Feedback form for preview designs
+                      // Feedback form for preview items
                       <div className="space-y-3">
                         <label className="block text-sm font-medium text-gray-700">
-                          Share your feedback on this design:
+                          Share your feedback on this item:
                         </label>
                         <textarea
-                          value={feedbackByDesign[design.id] || ''}
-                          onChange={(e) => setFeedbackByDesign(prev => ({ ...prev, [design.id]: e.target.value }))}
-                          placeholder="What do you think about this design? Any suggestions?"
-                          disabled={submittedFeedback[design.id]}
+                          value={feedbackByItem[item.id] || ''}
+                          onChange={(e) => setFeedbackByItem(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          placeholder="What do you think about this item? Any suggestions?"
+                          disabled={submittedFeedback[item.id]}
                           className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none resize-y min-h-[100px] ${
-                            submittedFeedback[design.id] ? 'bg-gray-50 cursor-not-allowed' : ''
+                            submittedFeedback[item.id] ? 'bg-gray-50 cursor-not-allowed' : ''
                           }`}
                         />
                         <button
-                          onClick={() => handleSubmitFeedback(design.id)}
-                          disabled={submittingFeedback[design.id] || submittedFeedback[design.id]}
+                          onClick={() => handleSubmitFeedback(item.id)}
+                          disabled={submittingFeedback[item.id] || submittedFeedback[item.id]}
                           className={`w-full py-3 rounded-lg font-bold text-white transition-all ${
-                            submittedFeedback[design.id]
+                            submittedFeedback[item.id]
                               ? 'bg-green-500 cursor-not-allowed'
-                              : submittingFeedback[design.id]
+                              : submittingFeedback[item.id]
                               ? 'bg-yellow-300 cursor-not-allowed'
                               : 'bg-yellow-600 hover:bg-yellow-700'
                           }`}
                         >
-                          {submittedFeedback[design.id]
+                          {submittedFeedback[item.id]
                             ? 'Thank you for your feedback!'
-                            : submittingFeedback[design.id]
+                            : submittingFeedback[item.id]
                             ? 'Submitting...'
                             : 'Submit Feedback'}
                         </button>
                       </div>
                     ) : (
-                      // Size selection for open designs
+                      // Size selection for open items
                       <div className="grid grid-cols-5 gap-2">
                         {SIZES.map(size => {
-                          const designSizes = sizesByDesign[design.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
+                          const itemSizes = sizesByItem[item.id] || { S: 0, M: 0, L: 0, XL: 0, XXL: 0 };
                           return (
                             <div key={size} className="flex flex-col items-center">
                               <label className="text-xs font-bold text-gray-500 mb-1">{size}</label>
                               <input
                                 type="number"
                                 min="0"
-                                value={designSizes[size] === 0 ? '' : designSizes[size]}
-                                onChange={(e) => handleSizeChange(design.id, size, e.target.value)}
+                                value={itemSizes[size] === 0 ? '' : itemSizes[size]}
+                                onChange={(e) => handleSizeChange(item.id, size, e.target.value)}
                                 placeholder="0"
                                 className="w-full text-center px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                               />
@@ -632,16 +632,16 @@ export default function App() {
             </div>
           )}
 
-          {/* Old single-design view - keeping for reference, will remove after multi-design ordering works */}
-          {view === 'store' && false && selectedDesign && (
+          {/* Old single-item view - keeping for reference, will remove after multi-item ordering works */}
+          {view === 'store' && false && selectedItem && (
             <div className="grid md:grid-cols-2 gap-8 items-start">
               <div className="space-y-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                  <h1 className="text-3xl font-extrabold text-gray-900 mb-4">{selectedDesign.productHeader}</h1>
+                  <h1 className="text-3xl font-extrabold text-gray-900 mb-4">{selectedItem.productHeader}</h1>
                   <div
                     className="text-gray-600 whitespace-pre-wrap"
                     dangerouslySetInnerHTML={{
-                      __html: selectedDesign.productDescription || ""
+                      __html: selectedItem.productDescription || ""
                     }}
                   />
                 </div>
@@ -726,7 +726,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-900">Items</h2>
                 <button
-                  onClick={handleCreateDesign}
+                  onClick={handleCreateItem}
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
                 >
                   <Plus className="w-4 h-4" />
@@ -734,22 +734,22 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Design Cards */}
-              {designs.map(design => {
-                const designOrders = ordersByDesign[design.id] || [];
-                const designTotals = calculateDesignTotals(design.id);
-                const isCollapsed = collapsedDesigns[design.id] !== false; // Default to collapsed
+              {/* item Cards */}
+              {items.map(item => {
+                const itemOrders = ordersByItem[item.id] || [];
+                const itemTotals = calculateItemTotals(item.id);
+                const isCollapsed = collapsedItems[item.id] !== false; // Default to collapsed
                 
                 return (
-                  <div key={design.id} className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+                  <div key={item.id} className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
                     {/* Collapsible Header */}
                     <div
                       className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
-                      onClick={() => toggleDesignCollapse(design.id)}
+                      onClick={() => toggleItemCollapse(item.id)}
                     >
                       <div className="flex items-center gap-3">
                         {isCollapsed ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronUp className="w-5 h-5 text-gray-400" />}
-                        <h3 className="text-lg font-bold text-gray-900">{design.name}</h3>
+                        <h3 className="text-lg font-bold text-gray-900">{item.name}</h3>
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Reorder buttons */}
@@ -757,11 +757,11 @@ export default function App() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleMoveDesign(design.id, 'up');
+                              handleMoveItem(item.id, 'up');
                             }}
-                            disabled={designs.findIndex(d => d.id === design.id) === 0}
+                            disabled={items.findIndex(d => d.id === item.id) === 0}
                             className={`p-1.5 rounded transition-colors ${
-                              designs.findIndex(d => d.id === design.id) === 0
+                              items.findIndex(d => d.id === item.id) === 0
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'
                             }`}
@@ -772,11 +772,11 @@ export default function App() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleMoveDesign(design.id, 'down');
+                              handleMoveItem(item.id, 'down');
                             }}
-                            disabled={designs.findIndex(d => d.id === design.id) === designs.length - 1}
+                            disabled={items.findIndex(d => d.id === item.id) === items.length - 1}
                             className={`p-1.5 rounded transition-colors ${
-                              designs.findIndex(d => d.id === design.id) === designs.length - 1
+                              items.findIndex(d => d.id === item.id) === items.length - 1
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'
                             }`}
@@ -788,18 +788,18 @@ export default function App() {
                         
                         {/* Status Dropdown */}
                         <select
-                          value={design.status || 'open'}
+                          value={item.status || 'open'}
                           onChange={(e) => {
                             e.stopPropagation();
-                            handleChangeDesignStatus(design.id, e.target.value);
+                            handleChangeItemStatus(item.id, e.target.value);
                           }}
                           onClick={(e) => e.stopPropagation()}
                           className={`px-3 py-1.5 text-sm font-medium rounded-lg border-2 transition-colors cursor-pointer ${
-                            design.status === 'closed'
+                            item.status === 'closed'
                               ? 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
                               : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                           }`}
-                          title="Change Design Status"
+                          title="Change item Status"
                         >
                           <option value="open">Open</option>
                           <option value="closed">Closed</option>
@@ -808,10 +808,10 @@ export default function App() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteDesign(design.id, orders);
+                            handleDeleteItem(item.id, orders);
                           }}
                           className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete Design"
+                          title="Delete item"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -821,17 +821,17 @@ export default function App() {
                     {/* Expanded Content */}
                     {!isCollapsed && (
                       <div className="p-6 pt-0 border-t border-gray-100">
-                        {/* Editable Design Fields */}
+                        {/* Editable item Fields */}
                         <div className="space-y-4 mb-6">
                           <div className="grid md:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
                               <input
                                 type="text"
-                                value={designEdits[design.id]?.name ?? design.name}
+                                value={itemEdits[item.id]?.name ?? item.name}
                                 onChange={e => {
-                                  handleUpdateDesignField(design.id, 'name', e.target.value);
-                                  handleUpdateDesignField(design.id, 'productHeader', e.target.value);
+                                  handleUpdateItemField(item.id, 'name', e.target.value);
+                                  handleUpdateItemField(item.id, 'productHeader', e.target.value);
                                 }}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                               />
@@ -842,8 +842,8 @@ export default function App() {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                value={designEdits[design.id]?.price ?? design.price}
-                                onChange={e => handleUpdateDesignField(design.id, 'price', parseFloat(e.target.value) || 0)}
+                                value={itemEdits[item.id]?.price ?? item.price}
+                                onChange={e => handleUpdateItemField(item.id, 'price', parseFloat(e.target.value) || 0)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                               />
                             </div>
@@ -851,35 +851,35 @@ export default function App() {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                             <textarea
-                              value={designEdits[design.id]?.productDescription ?? design.productDescription}
-                              onChange={e => handleUpdateDesignField(design.id, 'productDescription', e.target.value)}
+                              value={itemEdits[item.id]?.productDescription ?? item.productDescription}
+                              onChange={e => handleUpdateItemField(item.id, 'productDescription', e.target.value)}
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[80px]"
                             />
                           </div>
                         </div>
                     
-                    {/* Shirt Design Previews - 50% smaller */}
+                    {/* Shirt item Previews - 50% smaller */}
                     <div className="grid md:grid-cols-2 gap-4 mb-6">
                       {/* Front Image Preview */}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Front Image</label>
                         <div className="w-full max-w-[200px] mx-auto">
                           <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                            {design.frontImage ? (
-                              <img src={design.frontImage} alt="front" className="w-full h-full object-contain" />
+                            {item.frontImage ? (
+                              <img src={item.frontImage} alt="front" className="w-full h-full object-contain" />
                             ) : (
                               <ImageIcon className="w-12 h-12 text-gray-400" />
                             )}
                             <button
-                              onClick={() => handleOpenImageEditor('frontImage', design.id)}
+                              onClick={() => handleOpenImageEditor('frontImage', item.id)}
                               className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
                               title="Modify Front Image"
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
-                            {design.frontImage && (
+                            {item.frontImage && (
                               <button
-                                onClick={() => setZoomedImage(design.frontImage)}
+                                onClick={() => setZoomedImage(item.frontImage)}
                                 className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
                                 title="Zoom Image"
                               >
@@ -895,21 +895,21 @@ export default function App() {
                         <label className="block text-sm font-medium text-gray-700 mb-2">Back Image</label>
                         <div className="w-full max-w-[200px] mx-auto">
                           <div className="relative group aspect-[4/5] bg-gray-100 rounded-lg border-2 border-gray-300 flex items-center justify-center overflow-hidden shadow-sm">
-                            {design.backImage ? (
-                              <img src={design.backImage} alt="back" className="w-full h-full object-contain" />
+                            {item.backImage ? (
+                              <img src={item.backImage} alt="back" className="w-full h-full object-contain" />
                             ) : (
                               <ImageIcon className="w-12 h-12 text-gray-400" />
                             )}
                             <button
-                              onClick={() => handleOpenImageEditor('backImage', design.id)}
+                              onClick={() => handleOpenImageEditor('backImage', item.id)}
                               className="absolute top-2 right-2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100"
                               title="Modify Back Image"
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
-                            {design.backImage && (
+                            {item.backImage && (
                               <button
-                                onClick={() => setZoomedImage(design.backImage)}
+                                onClick={() => setZoomedImage(item.backImage)}
                                 className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-gray-700 rounded-full hover:bg-white hover:text-indigo-600 transition-colors shadow-md opacity-100 md:opacity-0 md:group-hover:opacity-100"
                                 title="Zoom Image"
                               >
@@ -926,14 +926,14 @@ export default function App() {
                       {SIZES.map(size => (
                         <div key={size} className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
                           <span className="text-gray-500 text-xs font-bold mb-1">SIZE {size}</span>
-                          <span className="text-2xl font-extrabold text-indigo-600">{designTotals.sizes[size]}</span>
+                          <span className="text-2xl font-extrabold text-indigo-600">{itemTotals.sizes[size]}</span>
                         </div>
                       ))}
                       {/* Total Revenue */}
                       <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex flex-col items-center justify-center">
                         <span className="text-green-700 text-xs font-bold mb-1">REVENUE</span>
                         <span className="text-2xl font-extrabold text-green-600">
-                          ${designTotals.revenue.toFixed(2)}
+                          ${itemTotals.revenue.toFixed(2)}
                         </span>
                       </div>
                       {/* Print Labels Button */}
@@ -950,23 +950,23 @@ export default function App() {
                     </div>
 
                     {/* Orders Details - Collapsible */}
-                    {designOrders.length > 0 && (
+                    {itemOrders.length > 0 && (
                       <div className="border border-gray-200 rounded-lg overflow-hidden">
                         <button
-                          onClick={() => setDesignOrdersExpanded(prev => ({
+                          onClick={() => setItemOrdersExpanded(prev => ({
                             ...prev,
-                            [design.id]: !prev[design.id]
+                            [item.id]: !prev[item.id]
                           }))}
                           className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
                         >
                           <span className="text-sm font-semibold text-gray-700">Details</span>
-                          {designOrdersExpanded[design.id] ?
+                          {itemOrdersExpanded[item.id] ?
                             <ChevronUp className="w-5 h-5 text-gray-400" /> :
                             <ChevronDown className="w-5 h-5 text-gray-400" />
                           }
                         </button>
                         
-                        {designOrdersExpanded[design.id] && (
+                        {itemOrdersExpanded[item.id] && (
                           <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead className="bg-gray-50 border-b border-gray-200">
@@ -977,12 +977,12 @@ export default function App() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100">
-                                {designOrders.map((order) => {
-                                  // Build sizes string from items array for this design
+                                {itemOrders.map((order) => {
+                                  // Build sizes string from items array for this item
                                   let sizesStr = '';
                                   if (order.items && Array.isArray(order.items)) {
-                                    const designItems = order.items.filter(item => item.designId === design.id);
-                                    sizesStr = designItems
+                                    const itemItems = order.items.filter(item => item.itemId === item.id);
+                                    sizesStr = itemItems
                                       .map(item => `${item.size}: ${item.quantity}`)
                                       .join(', ');
                                   } else if (order.sizes) {
@@ -1010,13 +1010,13 @@ export default function App() {
 
                     {/* Feedback Section */}
                     {(() => {
-                      const designFeedback = feedbackList.filter(f => f.designId === design.id);
-                      if (designFeedback.length === 0) return null;
+                      const itemFeedback = feedbackList.filter(f => f.itemId === item.id);
+                      if (itemFeedback.length === 0) return null;
                       
                       return (
                         <div className="mt-8">
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Feedback ({designFeedback.length})
+                            Feedback ({itemFeedback.length})
                           </label>
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm text-gray-600">
@@ -1028,7 +1028,7 @@ export default function App() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100">
-                                {designFeedback.map(feedback => (
+                                {itemFeedback.map(feedback => (
                                   <tr key={feedback.id} className="hover:bg-gray-50/50 transition-colors">
                                     <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 w-32">
                                       {new Date(feedback.timestamp).toLocaleDateString()} <br/>
@@ -1070,7 +1070,7 @@ export default function App() {
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">All Orders</h2>
                     <p className="text-sm text-gray-500 mt-1">
-                      {orders.length} total orders • ${totalRevenue.toFixed(2)} paid
+                      {orders.length} total orders � ${totalRevenue.toFixed(2)} paid
                     </p>
                   </div>
                 </div>
@@ -1135,21 +1135,21 @@ export default function App() {
                                     // New structure: items array
                                     order.items.map((item, index) => (
                                       <div key={index} className="flex justify-between items-center py-1 text-sm">
-                                        <span className="text-gray-900">{item.designName} - {item.size} (x{item.quantity})</span>
+                                        <span className="text-gray-900">{item.itemName} - {item.size} (x{item.quantity})</span>
                                         <span className="text-gray-900">${item.subtotal?.toFixed(2) || '0.00'}</span>
                                       </div>
                                     ))
                                   ) : (
-                                    // Legacy structure: single design with sizes
+                                    // Legacy structure: single item with sizes
                                     SIZES.map(size => {
                                       if (!order.sizes?.[size] || order.sizes[size] === 0) return null;
-                                      const design = designs.find(d => d.id === order.designId);
-                                      const designName = design?.name || 'Unknown Design';
-                                      const price = design?.price || 0;
+                                      const item = items.find(d => d.id === order.itemId);
+                                      const itemName = item?.name || 'Unknown item';
+                                      const price = item?.price || 0;
                                       
                                       return Array.from({ length: order.sizes[size] }, (_, index) => (
                                         <div key={`${size}-${index}`} className="flex justify-between items-center py-1 text-sm">
-                                          <span className="text-gray-900">{designName} - {size}</span>
+                                          <span className="text-gray-900">{itemName} - {size}</span>
                                           <span className="text-gray-900">${price.toFixed(2)}</span>
                                         </div>
                                       ));
@@ -1241,9 +1241,9 @@ export default function App() {
                       const saved = await saveConfig();
                       if (!saved) return;
                     }
-                    // Save all design edits
-                    const designsSaved = await saveAllDesignEdits();
-                    if (!designsSaved) return;
+                    // Save all item edits
+                    const itemsSaved = await saveAllItemEdits();
+                    if (!itemsSaved) return;
                     
                     setAdminError('');
                     setView('store');
@@ -1337,14 +1337,14 @@ export default function App() {
         showOrderModal={showOrderModal}
         orderSubmitted={orderSubmitted}
         handleCloseOrderModal={handleCloseOrderModal}
-        sizesByDesign={sizesByDesign}
-        designs={designs}
+        sizesByItem={sizesByItem}
+        items={items}
         totalPrice={totalPrice}
         orderModalName={orderModalName}
         setOrderModalName={setOrderModalName}
         orderModalNotes={orderModalNotes}
         setOrderModalNotes={setOrderModalNotes}
-        handleSubmitMultiDesignOrder={handleSubmitMultiDesignOrder}
+        handleSubmitMultiItemOrder={handleSubmitMultiItemOrder}
         isSubmitting={isSubmitting}
         globalConfig={globalConfig}
       />

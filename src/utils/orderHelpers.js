@@ -3,11 +3,11 @@ import { db, appId } from '../firebase';
 import { SIZES } from '../constants';
 import emailjs from '@emailjs/browser';
 
-export async function submitMultiDesignOrder({
+export async function submitMultiItemOrder({
   orderModalName,
   orderModalNotes,
-  sizesByDesign,
-  designs,
+  sizesByItem,
+  items,
   globalConfig,
   totalItems,
   totalPrice,
@@ -20,36 +20,36 @@ export async function submitMultiDesignOrder({
   const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
   const timestamp = Date.now();
   
-  // Build items array with design+size quantities
-  const items = [];
+  // Build items array with item+size quantities
+  const orderItems = [];
   const orderDetails = [];
   
-  for (const [designId, designSizes] of Object.entries(sizesByDesign)) {
-    const design = designs.find(d => d.id === designId);
-    if (!design) continue;
+  for (const [itemId, itemSizes] of Object.entries(sizesByItem)) {
+    const item = items.find(d => d.id === itemId);
+    if (!item) continue;
     
     // Add each size with quantity > 0 to items array
     for (const size of SIZES) {
-      const quantity = designSizes[size] || 0;
+      const quantity = itemSizes[size] || 0;
       if (quantity > 0) {
-        items.push({
-          designId: designId,
-          designName: design.name,
+        orderItems.push({
+          itemId: itemId,
+          itemName: item.name,
           size: size,
           quantity: quantity,
-          subtotal: quantity * design.price
+          subtotal: quantity * item.price
         });
       }
     }
     
     // Build order details for email
-    const totalItemsForDesign = Object.values(designSizes).reduce((sum, qty) => sum + qty, 0);
-    if (totalItemsForDesign > 0) {
+    const totalItemsForItem = Object.values(itemSizes).reduce((sum, qty) => sum + qty, 0);
+    if (totalItemsForItem > 0) {
       orderDetails.push({
-        designName: design.name,
-        sizes: designSizes,
-        totalItems: totalItemsForDesign,
-        totalPrice: totalItemsForDesign * design.price
+        itemName: item.name,
+        sizes: itemSizes,
+        totalItems: totalItemsForItem,
+        totalPrice: totalItemsForItem * item.price
       });
     }
   }
@@ -58,7 +58,7 @@ export async function submitMultiDesignOrder({
   const orderData = {
     name: orderModalName.trim(),
     notes: orderModalNotes.trim(),
-    items: items,
+    items: orderItems,
     totalItems: totalItems,
     totalPrice: totalPrice,
     timestamp: timestamp,
@@ -80,7 +80,7 @@ export async function submitMultiDesignOrder({
           .filter(size => order.sizes[size] > 0)
           .map(size => `${size}: ${order.sizes[size]}`)
           .join(', ');
-        return `${order.designName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
+        return `${order.itemName} - ${sizesText} (${order.totalItems} items - $${order.totalPrice.toFixed(2)})`;
       }).join('\n');
       
       const emailBody = `Name: ${orderModalName.trim()}
@@ -114,24 +114,24 @@ Order Date: ${new Date().toLocaleString()}`;
 }
 
 export async function submitFeedback({
-  designId,
+  itemId,
   feedback,
-  designs,
+  items,
   globalConfig
 }) {
   if (!feedback.trim()) {
     throw new Error('Please enter your feedback before submitting.');
   }
 
-  const design = designs.find(d => d.id === designId);
-  if (!design) {
-    throw new Error('Design not found');
+  const item = items.find(d => d.id === itemId);
+  if (!item) {
+    throw new Error('item not found');
   }
 
   const feedbackRef = collection(db, 'artifacts', appId, 'public', 'data', 'feedback');
   const feedbackDoc = {
-    designId: designId,
-    designName: design.name,
+    itemId: itemId,
+    itemName: item.name,
     feedback: feedback,
     timestamp: Date.now(),
     createdAt: new Date().toISOString()
@@ -152,7 +152,7 @@ Submitted: ${new Date().toLocaleString()}`;
     const emailParams = {
       to_email: globalConfig.notificationEmail,
       email: globalConfig.notificationEmail,
-      subject: `New Feedback for ${design.name}`,
+      subject: `New Feedback for ${item.name}`,
       body: emailBody
     };
 

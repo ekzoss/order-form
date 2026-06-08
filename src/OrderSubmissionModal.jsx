@@ -9,14 +9,14 @@ const OrderSubmissionModal = ({
   showOrderModal,
   orderSubmitted,
   handleCloseOrderModal,
-  sizesByDesign,
-  designs,
+  sizesByItem,
+  items,
   totalPrice,
   orderModalName,
   setOrderModalName,
   orderModalNotes,
   setOrderModalNotes,
-  handleSubmitMultiDesignOrder,
+  handleSubmitMultiItemOrder,
   isSubmitting,
   globalConfig
 }) => {
@@ -38,7 +38,7 @@ const OrderSubmissionModal = ({
     console.log('Payment successful:', paymentData);
     setIsProcessingOrder(true);
     // Submit the order after successful payment with payment ID
-    await handleSubmitMultiDesignOrder(paymentData.id);
+    await handleSubmitMultiItemOrder(paymentData.id);
     setPaymentCompleted(true);
     setIsProcessingOrder(false);
   };
@@ -54,16 +54,16 @@ const OrderSubmissionModal = ({
     if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey && globalConfig?.notificationEmail) {
       try {
         // Build order details for email
-        const orderDetails = Object.entries(sizesByDesign)
-          .flatMap(([designId, designSizes]) => {
-            const design = designs.find(d => d.id === designId);
-            if (!design) return [];
+        const orderDetails = Object.entries(sizesByItem)
+          .flatMap(([itemId, itemSizes]) => {
+            const item = items.find(d => d.id === itemId);
+            if (!item) return [];
             
             return SIZES
-              .filter(size => designSizes[size] > 0)
+              .filter(size => itemSizes[size] > 0)
               .flatMap(size => {
-                return Array.from({ length: designSizes[size] }, () =>
-                  `${design.name} - ${size}: $${design.price.toFixed(2)}`
+                return Array.from({ length: itemSizes[size] }, () =>
+                  `${item.name} - ${size}: $${item.price.toFixed(2)}`
                 );
               });
           })
@@ -127,25 +127,25 @@ Please follow up with the customer.`
 
           <div className="mb-6 space-y-2">
             <h3 className="font-semibold text-gray-700 mb-3">Order Summary:</h3>
-            {Object.entries(sizesByDesign).flatMap(([designId, designSizes]) => {
-              const design = designs.find(d => d.id === designId);
-              if (!design) return [];
+            {Object.entries(sizesByItem).flatMap(([itemId, itemSizes]) => {
+              const item = items.find(d => d.id === itemId);
+              if (!item) return [];
 
               // Create a line item for each size with quantity > 0
               return SIZES
-                .filter(size => designSizes[size] > 0)
+                .filter(size => itemSizes[size] > 0)
                 .flatMap(size => {
                   // Create multiple line items if quantity > 1
-                  return Array.from({ length: designSizes[size] }, (_, index) => ({
-                    key: `${designId}-${size}-${index}`,
-                    designName: design.name,
+                  return Array.from({ length: itemSizes[size] }, (_, index) => ({
+                    key: `${itemId}-${size}-${index}`,
+                    itemName: item.name,
                     size: size,
-                    price: design.price
+                    price: item.price
                   }));
                 });
             }).map(item => (
               <div key={item.key} className="flex justify-between items-center py-1">
-                <p className="text-sm text-gray-900">{item.designName} - {item.size}</p>
+                <p className="text-sm text-gray-900">{item.itemName} - {item.size}</p>
                 <p className="text-sm text-gray-900">${item.price.toFixed(2)}</p>
               </div>
             ))}

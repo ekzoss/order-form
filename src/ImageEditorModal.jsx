@@ -43,7 +43,7 @@ const ImageEditorModal = ({
   isOpen,
   onClose,
   side,
-  initialDesignImage,
+  initialItemImage,
   initialBackground,
   initialPosition,
   initialSize,
@@ -52,7 +52,7 @@ const ImageEditorModal = ({
   compositeImageWithTshirt,
   compressImage
 }) => {
-  const [designImage, setDesignImage] = useState(initialDesignImage);
+  const [itemImage, setItemImage] = useState(initialItemImage);
   const [selectedBackground, setSelectedBackground] = useState(initialBackground);
   const [position, setPosition] = useState(initialPosition || { x: 50, y: 28 });
   const [size, setSize] = useState(initialSize || 45);
@@ -66,13 +66,13 @@ const ImageEditorModal = ({
   // Reset state when modal opens with new props
   useEffect(() => {
     if (isOpen) {
-      setDesignImage(initialDesignImage);
+      setItemImage(initialItemImage);
       setSelectedBackground(initialBackground);
       setPosition(initialPosition || { x: 50, y: 28 });
       setSize(initialSize || 45);
       setPreviewImage(null);
     }
-  }, [isOpen, side, initialDesignImage, initialBackground, initialPosition, initialSize]);
+  }, [isOpen, side, initialItemImage, initialBackground, initialPosition, initialSize]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -81,7 +81,7 @@ const ImageEditorModal = ({
     setIsProcessing(true);
     try {
       const compressedBase64 = await compressImage(file);
-      setDesignImage(compressedBase64);
+      setItemImage(compressedBase64);
     } catch (err) {
       console.error('Upload error:', err);
       alert('Failed to upload image. Please try a smaller image.');
@@ -91,7 +91,7 @@ const ImageEditorModal = ({
   };
 
   const handleMouseDown = (e) => {
-    if (!designImage) return;
+    if (!itemImage) return;
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -107,7 +107,7 @@ const ImageEditorModal = ({
   };
 
   const handleMouseMove = (e) => {
-    if (!isDragging || !designImage) return;
+    if (!isDragging || !itemImage) return;
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -133,7 +133,7 @@ const ImageEditorModal = ({
   };
 
   const handleTouchStart = (e) => {
-    if (!designImage) return;
+    if (!itemImage) return;
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -150,7 +150,7 @@ const ImageEditorModal = ({
   };
 
   const handleTouchMove = (e) => {
-    if (!isDragging || !designImage) return;
+    if (!isDragging || !itemImage) return;
     e.preventDefault();
     
     const canvas = canvasRef.current;
@@ -178,13 +178,13 @@ const ImageEditorModal = ({
 
   const handleSave = async () => {
     console.log('ImageEditorModal handleSave called');
-    console.log('designImage:', designImage?.substring(0, 50));
+    console.log('itemImage:', itemImage?.substring(0, 50));
     console.log('selectedBackground:', selectedBackground?.substring(0, 50));
     console.log('position:', position);
     console.log('size:', size);
     
-    if (!designImage || !selectedBackground) {
-      console.error('Missing designImage or selectedBackground');
+    if (!itemImage || !selectedBackground) {
+      console.error('Missing itemImage or selectedBackground');
       return;
     }
     
@@ -193,7 +193,7 @@ const ImageEditorModal = ({
       console.log('Generating composite...');
       // Generate the final composite image only when saving
       const finalComposite = await compositeImageWithTshirt(
-        designImage,
+        itemImage,
         selectedBackground,
         position,
         size
@@ -210,7 +210,7 @@ const ImageEditorModal = ({
       
       // Call onSave and wait for it to complete
       await onSave({
-        designImage,
+        itemImage,
         selectedBackground,
         position,
         size,
@@ -257,7 +257,7 @@ const ImageEditorModal = ({
         <div className="p-6 space-y-6">
           {/* Step 1: Upload Image */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">1. Upload Design Image</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">1. Upload item Image</h3>
             <label className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors text-sm font-medium border border-indigo-200 w-full max-w-xs">
               <Upload className="w-4 h-4" />
               <span>Choose Image</span>
@@ -272,12 +272,12 @@ const ImageEditorModal = ({
           </div>
 
           {/* Step 2: Position & Resize */}
-          {designImage && (
+          {itemImage && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">2. Position & Resize Design</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">2. Position & Resize item</h3>
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <p className="text-xs text-gray-600 mb-3">
-                  Click and drag (or touch and drag) the design to position it. Use the slider below to resize.
+                  Click and drag (or touch and drag) the item to position it. Use the slider below to resize.
                 </p>
                 
                 {/* Interactive Preview with Static Background */}
@@ -296,10 +296,10 @@ const ImageEditorModal = ({
                     draggable="false"
                   />
                   
-                  {/* Draggable Design Image Overlay */}
+                  {/* Draggable item Image Overlay */}
                   <img
-                    src={designImage}
-                    alt="Design"
+                    src={itemImage}
+                    alt="item"
                     className="absolute pointer-events-none select-none"
                     draggable="false"
                     onMouseDown={handleMouseDown}
@@ -350,7 +350,7 @@ const ImageEditorModal = ({
           )}
 
           {/* Step 3: Change Background */}
-          {designImage && (
+          {itemImage && (
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-3">3. Change Background</h3>
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -414,7 +414,7 @@ const ImageEditorModal = ({
           </button>
           <button
             onClick={handleSave}
-            disabled={!designImage || isProcessing}
+            disabled={!itemImage || isProcessing}
             className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
