@@ -80,7 +80,7 @@ const generateSvgBackground = async (color, width = 1200, height = 900) => {
   });
 };
 // Helper function to compress a base64 image
-const compressBase64Image = (base64String, maxWidth = 1200, maxHeight = 1200, quality = 0.92) => {
+const compressBase64Image = (base64String, maxWidth = 600, maxHeight = 600, quality = 0.8) => {
   return new Promise((resolve, reject) => {
     const img = new window.Image();
     img.src = base64String;
@@ -240,6 +240,7 @@ const ImageEditorModal = ({
 
   const handleImageMouseDown = (imageId, e) => {
     if (!selectedImage) return;
+    e.preventDefault(); // Prevent default drag behavior
     e.stopPropagation();
     
     setSelectedImageId(imageId);
@@ -348,6 +349,7 @@ const ImageEditorModal = ({
 
   const handleImageTouchStart = (imageId, e) => {
     if (!selectedImage) return;
+    e.preventDefault(); // Prevent default drag behavior
     e.stopPropagation();
     
     setSelectedImageId(imageId);
@@ -463,8 +465,8 @@ const ImageEditorModal = ({
   };
 
   const handleSave = async () => {
-    if (foregroundImages.length === 0 || !selectedBackground) {
-      console.error('Missing foreground images or selectedBackground');
+    if (!selectedBackground) {
+      console.error('Missing selectedBackground');
       return;
     }
     
@@ -823,7 +825,7 @@ const ImageEditorModal = ({
           </button>
           <button
             onClick={handleSave}
-            disabled={foregroundImages.length === 0 || isProcessing}
+            disabled={!selectedBackground || isProcessing}
             className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />

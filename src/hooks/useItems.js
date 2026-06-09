@@ -248,7 +248,8 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
       selectedBackground,
       foregroundImages,
       backgroundType,
-      backgroundColor
+      backgroundColor,
+      customBackgroundImage
     } = data;
     
     if (!itemId) {
@@ -256,16 +257,89 @@ export function useItems(user, selectedItemId, setSelectedItemId) {
     }
     
     try {
+      // Helper function to aggressively compress base64 images for Firestore storage
+      const compressBase64ForStorage = (base64String, maxWidth = 500, maxHeight = 500, quality = 0.7, preserveTransparency = true) => {
+        return new Promise((resolve, reject) => {
+          const img = new window.Image();
+          img.src = base64String;
+          
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            
+            // Calculate new dimensions while maintaining aspect ratio
+            if (width > maxWidth || height > maxHeight) {
+              const widthRatio = maxWidth / width;
+              const heightRatio = maxHeight / height;
+              const ratio = Math.min(widthRatio, heightRatio);
+              
+              width = width * ratio;
+              height = height * ratio;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            const ctx = canvas.getContext('2d', { alpha: true });
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Use PNG for transparency support, JPEG only for solid backgrounds
+            const format = preserveTransparency ? 'image/png' : 'image/jpeg';
+            const compressed = canvas.toDataURL(format, quality);
+            resolve(compressed);
+          };
+          
+          img.onerror = (err) => {
+            reject(new Error('Failed to load image for compression: ' + err));
+          };
+        });
+      };
+      
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', itemId);
       
+      // Compress all images before storing to avoid Firestore size limits
+      // Background: Use PNG with transparency for SVG t-shirts, JPEG for solid colors
+      const backgroundNeedsTransparency = backgroundType === 'svg';
+      const compressedBackground = await compressBase64ForStorage(
+        selectedBackground,
+        500,
+        500,
+        0.7,
+        backgroundNeedsTransparency
+      );
+      
+      // Compress foreground images only if they exist - always preserve transparency
+      // Use smaller size for foreground images to reduce total document size
+      const compressedForegroundImages = foregroundImages && foregroundImages.length > 0
+        ? await Promise.all(
+            foregroundImages.map(async (img) => ({
+              ...img,
+              image: await compressBase64ForStorage(img.image, 400, 400, 0.65, true)
+            }))
+          )
+        : [];
+      
+      // Compress custom background if present - may need transparency
+      const compressedCustomBackground = customBackgroundImage
+        ? await compressBase64ForStorage(customBackgroundImage, 500, 500, 0.7, true)
+        : null;
+      
       // Store only the composition metadata - preview will be rendered dynamically
+      const metaData = {
+        selectedBackground: compressedBackground,
+        foregroundImages: compressedForegroundImages,
+        backgroundType,
+        backgroundColor
+      };
+      
+      // Only include customBackgroundImage if it exists
+      if (compressedCustomBackground) {
+        metaData.customBackgroundImage = compressedCustomBackground;
+      }
+      
       await updateDoc(itemRef, {
-        previewImageMeta: {
-          selectedBackground,
-          foregroundImages,
-          backgroundType,
-          backgroundColor
-        },
+        previewImageMeta: metaData,
         updatedAt: Date.now()
       });
     } catch (err) {
