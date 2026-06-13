@@ -188,6 +188,12 @@ export default function App() {
   const [adminAccessDenied, setAdminAccessDenied] = useState(false);
   const [orders, setOrders] = useState([]);
   const [editingOrderId, setEditingOrderId] = useState(null);
+  
+  // Label Printing State
+  const [showDateModal, setShowDateModal] = useState(false);
+  const [printStartDate, setPrintStartDate] = useState('');
+  const [printEndDate, setPrintEndDate] = useState('');
+  const [currentPrintDesignId, setCurrentPrintDesignId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
@@ -1021,6 +1027,69 @@ Submitted: ${new Date().toLocaleString()}`;
     }
   };
 
+  // --- Label Printing Functions ---
+  const handleOpenPrintModal = (designId) => {
+    setCurrentPrintDesignId(designId);
+    // Set default dates to today
+    const today = new Date().toISOString().split('T')[0];
+    setPrintStartDate(today);
+    setPrintEndDate(today);
+    setShowDateModal(true);
+  };
+
+  const handlePrintLabels = () => {
+    setShowDateModal(false);
+    // Small delay to allow modal to close before printing
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
+
+  const getGroupedOrdersForPrint = () => {
+    // Filter all orders by date range
+    const startTime = printStartDate ? new Date(printStartDate).setHours(0, 0, 0, 0) : 0;
+    const endTime = printEndDate ? new Date(printEndDate).setHours(23, 59, 59, 999) : Infinity;
+    
+    const filteredOrders = orders.filter(order => {
+      const orderTime = new Date(order.timestamp).getTime();
+      return orderTime >= startTime && orderTime <= endTime;
+    });
+    
+    // Group orders by customer name (case-insensitive)
+    const groupedByCustomer = {};
+    filteredOrders.forEach(order => {
+      const customerKey = order.name.toLowerCase().trim();
+      if (!groupedByCustomer[customerKey]) {
+        groupedByCustomer[customerKey] = {
+          name: order.name,
+          orders: []
+        };
+      }
+      groupedByCustomer[customerKey].orders.push(order);
+    });
+    
+    // Convert to array and calculate totals for each customer
+    return Object.values(groupedByCustomer).map(customer => {
+      const totalItems = customer.orders.reduce((sum, order) => sum + (order.totalItems || 0), 0);
+      
+      // Combine all designs and sizes
+      const designDetails = customer.orders.map(order => {
+        const design = designs.find(d => d.id === order.designId);
+        return {
+          designName: design?.name || 'Unknown Design',
+          sizes: order.sizes || {},
+          notes: order.notes
+        };
+      });
+      
+      return {
+        name: customer.name,
+        totalItems,
+        designDetails
+      };
+    });
+  };
+
   // --- Admin Calculations ---
   
   // Group orders by design
@@ -1798,7 +1867,7 @@ Submitted: ${new Date().toLocaleString()}`;
                       {/* Print Labels Button */}
                       <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
                         <button
-                          onClick={() => window.print()}
+                          onClick={() => handleOpenPrintModal(design.id)}
                           className="text-white font-medium transition-colors flex items-center gap-2 text-xs hover:text-gray-200"
                           title="Print Packaging Labels"
                         >
@@ -2053,48 +2122,126 @@ Submitted: ${new Date().toLocaleString()}`;
         </footer>
       </div>
 
+      {/* Date Picker Modal for Label Printing */}
+      {showDateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">Select Date Range for Labels</h3>
+            <p className="text-gray-600 mb-6">Choose the date range for orders to include in the printed labels.</p>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                <input
+                  type="date"
+                  value={printStartDate}
+                  onChange={(e) => setPrintStartDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                <input
+                  type="date"
+                  value={printEndDate}
+                  onChange={(e) => setPrintEndDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDateModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePrintLabels}
+                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Print Labels
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PRINT UI CONTAINER
-        This entirely separate structure is heavily styled to only show up on printer paper. 
-        It divides the items into 48% height blocks so exactly 2 fit per page without overflowing. 
+        This entirely separate structure is heavily styled to only show up on printer paper.
+        It divides the items into 48% height blocks so exactly 2 fit per page without overflowing.
       */}
       <div className="hidden print:block w-full bg-white text-black font-sans">
-        {orders.length === 0 ? (
-          <div className="p-12 text-center text-xl">No orders to print.</div>
-        ) : (
-          orders.map((order) => (
-            <div 
-              key={order.id} 
-              className="h-[48vh] w-full border-b-2 border-dashed border-gray-400 flex flex-row items-center p-12 box-border" 
+        {(() => {
+          const groupedOrders = getGroupedOrdersForPrint();
+          
+          if (groupedOrders.length === 0) {
+            return <div className="p-12 text-center text-xl">No orders to print for the selected date range.</div>;
+          }
+          
+          return groupedOrders.map((customer, idx) => (
+            <div
+              key={idx}
+              className="h-[48vh] w-full flex flex-row items-start p-6 box-border"
               style={{ pageBreakInside: 'avoid' }}
             >
               {/* Left Side: Name and Total Quantity */}
-              <div className="w-1/2 pr-8 flex flex-col justify-center border-r-2 border-gray-200 h-full">
-                <h2 className="text-5xl font-extrabold mb-6 text-black leading-tight break-words">{order.name}</h2>
-                <div className="text-3xl font-medium text-gray-600">
-                  Total Items: <span className="font-bold text-black">{order.totalItems}</span>
+              <div className="w-1/2 pr-6 flex flex-col justify-start h-full">
+                <h2 className="text-3xl font-extrabold mb-3 text-black leading-tight break-words">{customer.name}</h2>
+                <div className="text-xl font-medium text-gray-600">
+                  Total Items: <span className="font-bold text-black">{customer.totalItems}</span>
                 </div>
               </div>
 
-              {/* Right Side: Sizes and Notes */}
-              <div className="w-1/2 pl-8 flex flex-col justify-center h-full">
-                <div className="flex flex-wrap gap-6">
-                  {SIZES.map(size => order.sizes?.[size] > 0 ? (
-                    <div key={size} className="flex flex-col items-center border-2 border-black rounded-lg p-4 min-w-[100px]">
-                      <span className="text-2xl font-bold text-gray-500 border-b-2 border-black w-full text-center pb-2 mb-2">{size}</span>
-                      <span className="text-5xl font-black">{order.sizes[size]}</span>
-                    </div>
-                  ) : null)}
+              {/* Right Side: Name, Total Items, and All Designs Table */}
+              <div className="w-1/2 pl-6 flex flex-col justify-start h-full overflow-auto">
+                <h2 className="text-3xl font-extrabold mb-3 text-black leading-tight break-words">{customer.name}</h2>
+                <div className="text-xl font-medium text-gray-600 mb-4">
+                  Total Items: <span className="font-bold text-black">{customer.totalItems}</span>
                 </div>
-                {order.notes && (
-                  <div className="mt-8 text-xl text-gray-700 italic border-l-4 border-gray-400 pl-4 py-2">
+                
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr>
+                      <th className="py-1 px-2 text-xs font-bold text-gray-700">Design</th>
+                      <th className="py-1 px-2 text-xs font-bold text-gray-700">Size</th>
+                      <th className="py-1 px-2 text-xs font-bold text-gray-700 text-right">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customer.designDetails.map((design, designIdx) => {
+                      const sizesWithQty = SIZES.filter(size => design.sizes[size] > 0);
+                      return sizesWithQty.map((size, sizeIdx) => (
+                        <tr key={`${designIdx}-${size}`}>
+                          {sizeIdx === 0 ? (
+                            <td className="py-1 px-2 font-medium align-top" rowSpan={sizesWithQty.length}>
+                              {design.designName}
+                            </td>
+                          ) : null}
+                          <td className="py-1 px-2">{size}</td>
+                          <td className="py-1 px-2 font-bold text-right">{design.sizes[size]}</td>
+                        </tr>
+                      ));
+                    })}
+                  </tbody>
+                </table>
+                
+                {/* Show notes from any design that has them */}
+                {customer.designDetails.some(d => d.notes) && (
+                  <div className="mt-3 text-xs text-gray-700 italic pl-2 py-1">
                     <span className="font-bold not-italic block mb-1">Notes:</span>
-                    "{order.notes}"
+                    {customer.designDetails.filter(d => d.notes).map((design, idx) => (
+                      <div key={idx} className="mb-1">"{design.notes}"</div>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
-          ))
-        )}
+          ));
+        })()}
       </div>
 
       <OrderSubmissionModal
